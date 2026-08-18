@@ -1,0 +1,5 @@
+CLASS ycl_r_rp_invoice_handler DEFINITION PUBLIC ABSTRACT FINAL FOR BEHAVIOR OF yi_rp_invoice.
+ENDCLASS.
+
+CLASS ycl_r_rp_invoice_handler IMPLEMENTATION.
+ENDCLASS.

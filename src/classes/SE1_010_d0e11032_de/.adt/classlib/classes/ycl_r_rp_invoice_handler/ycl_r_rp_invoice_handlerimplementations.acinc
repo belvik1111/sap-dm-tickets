@@ -1,0 +1,445 @@
+CLASS lhc_parent DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS get_instance_authorizations FOR INSTANCE AUTHORIZATION
+      IMPORTING keys REQUEST requested_authorizations FOR parent RESULT result.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE parent.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ parent RESULT result.
+
+    METHODS lock FOR LOCK
+      IMPORTING keys FOR LOCK parent.
+
+    METHODS rba_Bankaccounts FOR READ
+      IMPORTING keys_rba FOR READ parent\_Bankaccounts FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Files FOR READ
+      IMPORTING keys_rba FOR READ parent\_Files FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Header FOR READ
+      IMPORTING keys_rba FOR READ parent\_Header FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Ibans FOR READ
+      IMPORTING keys_rba FOR READ parent\_Ibans FULL result_requested RESULT result LINK association_links.
+
+    METHODS rba_Taxes FOR READ
+      IMPORTING keys_rba FOR READ parent\_Taxes FULL result_requested RESULT result LINK association_links.
+
+    METHODS cba_Bankaccounts FOR MODIFY
+      IMPORTING entities_cba FOR CREATE parent\_Bankaccounts.
+
+    METHODS cba_Files FOR MODIFY
+      IMPORTING entities_cba FOR CREATE parent\_Files.
+
+    METHODS cba_Header FOR MODIFY
+      IMPORTING entities_cba FOR CREATE parent\_Header.
+
+    METHODS cba_Ibans FOR MODIFY
+      IMPORTING entities_cba FOR CREATE parent\_Ibans.
+
+    METHODS cba_Taxes FOR MODIFY
+      IMPORTING entities_cba FOR CREATE parent\_Taxes.
+
+    METHODS createInvoice FOR MODIFY
+      IMPORTING keys FOR ACTION parent~createInvoice RESULT result.
+    METHODS map_rap_to_rfc
+      IMPORTING
+        is_request   TYPE yif_r_rp_invoice_handler=>ty_request
+      EXPORTING
+        es_header    TYPE /cockpit/shdr_ext
+        es_checkdata TYPE /cockpit/scheckdata
+        et_tax       TYPE /eby/iciv_ltax_ext
+        et_file      TYPE /cockpit/edi_tbl1024
+      .
+
+ENDCLASS.
+
+CLASS lhc_parent IMPLEMENTATION.
+
+  METHOD get_instance_authorizations.
+  ENDMETHOD.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD lock.
+  ENDMETHOD.
+
+  METHOD rba_Bankaccounts.
+  ENDMETHOD.
+
+  METHOD rba_Files.
+  ENDMETHOD.
+
+  METHOD rba_Header.
+  ENDMETHOD.
+
+  METHOD rba_Ibans.
+  ENDMETHOD.
+
+  METHOD rba_Taxes.
+  ENDMETHOD.
+
+  METHOD cba_Bankaccounts.
+  ENDMETHOD.
+
+  METHOD cba_Files.
+  ENDMETHOD.
+
+  METHOD cba_Header.
+  ENDMETHOD.
+
+  METHOD cba_Ibans.
+  ENDMETHOD.
+
+  METHOD cba_Taxes.
+  ENDMETHOD.
+
+  METHOD createInvoice.
+    DATA: lt_messages    TYPE bapiret2_t,
+          lt_tab_account TYPE STANDARD TABLE OF /cockpit/sacct_ext,
+          lt_item        TYPE STANDARD TABLE OF /cockpit/sitem_ext,
+          lv_guid        TYPE /cockpit/dinv_guid,
+          lv_docno       TYPE /cockpit/ddocno
+          .
+
+    READ TABLE keys INDEX 1 INTO DATA(ls_key).
+    IF sy-subrc <> 0.
+      RETURN.
+    ENDIF.
+
+    DATA(ls_req) =  ls_key-%param.
+    TRY.
+        map_rap_to_rfc(
+          EXPORTING
+            is_request = VALUE #(  documentType   = ls_req-documentType
+                                   header         = CORRESPONDING #( ls_req-header        )
+                                   ibans          = CORRESPONDING #( ls_req-_ibans        )
+                                   bank_accounts  = CORRESPONDING #( ls_req-_bankaccounts )
+                                   taxes          = CORRESPONDING #( ls_req-_taxes        )
+                                   files          = CORRESPONDING #( ls_req-_files        )
+                                 )
+          IMPORTING
+            es_header    = DATA(ls_hdr)
+            es_checkdata = DATA(ls_checkdata)
+            et_tax       = DATA(lt_tax)
+            et_file      = DATA(lt_content)
+            ).
+      CATCH cx_sy_conversion_no_number INTO DATA(lx_conversion).
+        APPEND VALUE #( %cid = ls_key-%cid
+                        %msg = new_message_with_text(
+                                 severity = if_abap_behv_message=>severity-error
+                                 text     = |Ungültiger numerischer Wert in der Invoice-Payload.| ) )
+               TO reported-parent.
+        APPEND VALUE #( %cid = ls_key-%cid ) TO failed-parent.
+        RETURN.
+    ENDTRY.
+
+    " Macht es der Service automatisch?
+    IF lines( ls_req-_ibans ) > 4 OR lines( ls_req-_bankaccounts ) > 4.
+      APPEND VALUE #( %cid = ls_key-%cid
+                      %msg = new_message_with_text(
+                               severity = if_abap_behv_message=>severity-error
+                               text     = |Maximal 4 IBANs und 4 Bankverbindungen erlaubt.| ) )
+             TO reported-parent.
+      APPEND VALUE #( %cid = ls_key-%cid ) TO failed-parent .
+      RETURN.
+    ENDIF.
+
+    CALL FUNCTION '/COCKPIT/RFC_DATA_SUBMIT' DESTINATION 'NONE'
+      EXPORTING
+        i_str_header   = ls_hdr
+        i_str_check    = ls_checkdata
+*       i_content_length =
+*       i_external_guid  =
+*       i_lic_counter  = 'X'
+      IMPORTING
+        e_guid         = lv_guid
+        e_docno        = lv_docno
+      TABLES
+        i_tab_item     = lt_item
+        i_tab_tax      = lt_tax
+        i_tab_account  = lt_tab_account
+        i_tab_content  = lt_content
+        e_tab_messages = lt_messages
+*       it_files       =
+*       it_binary      =
+*       it_text        =
+*       it_processlog  =
+*       it_hdr_tax_bras  =
+*       it_item_tax_bras =
+*       it_whtax       =
+      .
+    IF sy-subrc <> 0.
+      APPEND VALUE #( %cid = ls_key-%cid
+                      %msg = new_message_with_text(
+                               severity = if_abap_behv_message=>severity-error
+                               text     = |Verbuchung fehlgeschlagen (RFC_DATA_SUBMIT).| ) )
+             TO reported-parent.
+      APPEND VALUE #( %cid = ls_key-%cid ) TO failed-parent.
+      RETURN.
+    ENDIF.
+
+    APPEND VALUE #(  %cid                  = ls_key-%cid
+                     %param-documentGuid   = lv_guid
+                     %param-documentNumber = lv_docno    ) TO result.
+
+  ENDMETHOD.
+
+
+  METHOD map_rap_to_rfc.
+
+    CLEAR: es_header, es_checkdata, et_tax, et_file.
+
+    "Header
+    es_header-doc_date       = is_request-header-document_date.
+    es_header-vendor_no      = is_request-header-vendor_number.
+    es_header-po_number      = is_request-header-purchase_order_number.
+    es_header-pstng_date     = is_request-header-posting_date.
+    es_header-ref_doc_no     = is_request-header-reference_document_number.
+    es_header-comp_code      = is_request-header-company_code.
+    es_header-currency_iso   = is_request-header-currency_code.
+    es_header-gross_amount   = is_request-header-gross_amount.
+    " keine Textfelder BKTXT/SGTXT -> Text geht nach ZZ_KOMMENTAR
+    es_header-zz_kommentar  = is_request-header-header_text.
+
+    " CHECKDATA Steuer- und Bankdaten
+    es_checkdata-stceg = is_request-header-supplier_vat_id.
+    " IBANs
+    LOOP AT is_request-ibans INTO DATA(ls_iban).
+      CASE sy-tabix.
+        WHEN 1. es_checkdata-iban1 = ls_iban-iban.
+        WHEN 2. es_checkdata-iban2 = ls_iban-iban.
+        WHEN 3. es_checkdata-iban3 = ls_iban-iban.
+        WHEN 4. es_checkdata-iban4 = ls_iban-iban.
+        WHEN OTHERS.
+          EXIT.
+      ENDCASE.
+    ENDLOOP.
+
+    " Bankverbindung
+    " für bankCountry existiert in CHECKDATA kein Zielfeld
+    LOOP AT is_request-bank_accounts INTO DATA(ls_bank).
+      DATA(lv_bank_key) = COND string(
+        WHEN ls_bank-bank_key IS NOT INITIAL THEN ls_bank-bank_key
+        ELSE ls_bank-bank_number ).
+      CASE sy-tabix.
+        WHEN 1.
+          es_checkdata-bankl1 = lv_bank_key.
+          es_checkdata-bankn1 = ls_bank-bank_account_number.
+          es_checkdata-swift1 = ls_bank-swift.
+        WHEN 2.
+          es_checkdata-bankl2 = lv_bank_key.
+          es_checkdata-bankn2 = ls_bank-bank_account_number.
+          es_checkdata-swift2 = ls_bank-swift.
+        WHEN 3.
+          es_checkdata-bankl3 = lv_bank_key.
+          es_checkdata-bankn3 = ls_bank-bank_account_number.
+          es_checkdata-swift3 = ls_bank-swift.
+        WHEN 4.
+          es_checkdata-bankl4 = lv_bank_key.
+          es_checkdata-bankn4 = ls_bank-bank_account_number.
+          es_checkdata-swift4 = ls_bank-swift.
+        WHEN OTHERS. EXIT.
+      ENDCASE.
+    ENDLOOP.
+    " Steuern
+    LOOP AT is_request-taxes INTO DATA(ls_tax).
+      APPEND VALUE #(
+        tax_code   = ls_tax-tax_code
+        tax_rate   = ls_tax-tax_rate
+        tax_amount = ls_tax-tax_amount
+      ) TO et_tax.
+    ENDLOOP.
+
+*    " Dateien in 1024-Byte xstring übernehmen
+    LOOP AT is_request-files INTO DATA(ls_file).
+      DATA(lv_length) = xstrlen( ls_file-file ).
+      DATA(lv_offset) = 0.
+
+      WHILE lv_offset < lv_length.
+        DATA(lv_chunk_length) = COND i( WHEN lv_length - lv_offset > 1024 THEN 1024
+                                        ELSE lv_length - lv_offset ).
+        APPEND VALUE #(  line = ls_file-file+lv_offset(lv_chunk_length) ) TO et_file.
+        lv_offset = lv_offset + lv_chunk_length.
+      ENDWHILE.
+    ENDLOOP.
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_BankAccounts DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE BankAccounts.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ BankAccounts RESULT result.
+
+    METHODS rba_Parent FOR READ
+      IMPORTING keys_rba FOR READ BankAccounts\_Parent FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_BankAccounts IMPLEMENTATION.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Parent.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_Files DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Files.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Files RESULT result.
+
+    METHODS rba_Parent FOR READ
+      IMPORTING keys_rba FOR READ Files\_Parent FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_Files IMPLEMENTATION.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Parent.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_Header DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Header.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Header RESULT result.
+
+    METHODS rba_Parent FOR READ
+      IMPORTING keys_rba FOR READ Header\_Parent FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_Header IMPLEMENTATION.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Parent.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_Ibans DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Ibans.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Ibans RESULT result.
+
+    METHODS rba_Parent FOR READ
+      IMPORTING keys_rba FOR READ Ibans\_Parent FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_Ibans IMPLEMENTATION.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Parent.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lhc_Taxes DEFINITION INHERITING FROM cl_abap_behavior_handler.
+  PRIVATE SECTION.
+
+    METHODS create FOR MODIFY
+      IMPORTING entities FOR CREATE Taxes.
+
+    METHODS read FOR READ
+      IMPORTING keys FOR READ Taxes RESULT result.
+
+    METHODS rba_Parent FOR READ
+      IMPORTING keys_rba FOR READ Taxes\_Parent FULL result_requested RESULT result LINK association_links.
+
+ENDCLASS.
+
+CLASS lhc_Taxes IMPLEMENTATION.
+
+  METHOD create.
+  ENDMETHOD.
+
+  METHOD read.
+  ENDMETHOD.
+
+  METHOD rba_Parent.
+  ENDMETHOD.
+
+ENDCLASS.
+
+CLASS lsc_YI_RP_INVOICE DEFINITION INHERITING FROM cl_abap_behavior_saver.
+  PROTECTED SECTION.
+
+    METHODS finalize REDEFINITION.
+
+    METHODS check_before_save REDEFINITION.
+
+    METHODS save REDEFINITION.
+
+    METHODS cleanup REDEFINITION.
+
+    METHODS cleanup_finalize REDEFINITION.
+
+ENDCLASS.
+
+CLASS lsc_YI_RP_INVOICE IMPLEMENTATION.
+
+  METHOD finalize.
+  ENDMETHOD.
+
+  METHOD check_before_save.
+  ENDMETHOD.
+
+  METHOD save.
+  ENDMETHOD.
+
+  METHOD cleanup.
+  ENDMETHOD.
+
+  METHOD cleanup_finalize.
+  ENDMETHOD.
+
+ENDCLASS.
