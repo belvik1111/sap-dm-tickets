@@ -1,0 +1,1028 @@
+***INCLUDE MV50AFZ1 .
+
+************************************************************************
+*                                                                      *
+* This include is reserved for user modifications                      *
+*                                                                      *
+* Forms for delivery processing                                        *
+*                                                                      *
+* The name of modification modules should begin with 'ZZ'.             *
+*                                                                      *
+************************************************************************
+*{   INSERT         DE1K918969                                        2
+* Datenbereiche für alle User-Exits
+data: begin of common part yr_head_data,
+      s_yrlikp like yrlikp,
+      end of common part yr_head_data.
+*}   INSERT
+
+*---------------------------------------------------------------------*
+*       FORM ZZEXAMPLE                                                *
+*---------------------------------------------------------------------*
+*       text......................................                    *
+*---------------------------------------------------------------------*
+*FORM ZZEXAMPLE.
+
+*  ...
+
+*ENDFORM.
+
+*eject
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_DELETE_DOCUMENT                                 *
+*---------------------------------------------------------------------*
+*       This userexit can be used to delete data in additional tables *
+*       when a delivery is deleted.                                   *
+*                                                                     *
+*      This form is called in dialog at the end of form BELEG_LOESCHEN*
+*      just before form BELEG_SICHERN is performed to delete the      *
+*      datas on the database.                                         *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_DELETE_DOCUMENT.
+*{   INSERT         DE1K907716                                        1
+
+*}   INSERT
+
+ENDFORM.
+*eject
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_MOVE_FIELD_TO_LIKP                              *
+*---------------------------------------------------------------------*
+*       This userexit can be used to move some fields into the        *
+*       delivery header workaerea LIKP.                               *
+*       This form is called, when a header is created                 *
+*       This form is called at the end of form LIKP_FUELLEN.          *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_MOVE_FIELD_TO_LIKP.
+*{   INSERT         DE1K907716                                        1
+*}   INSERT
+
+*  LIKP-zzfield = xxxx-zzfield2.
+
+ENDFORM.
+*eject
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_MOVE_FIELD_TO_LIPS                              *
+*---------------------------------------------------------------------*
+*       This userexit can be used to move some fields into the        *
+*       delivery item workaerea LIPS                                  *
+*       This form is called, when an item is created                  *
+*                                                                     *
+*                                                                     *
+*       This form is called at the end of form LIPS_FUELLEN.          *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_MOVE_FIELD_TO_LIPS.
+
+*  LIPS-zzfield = xxxx-zzfield2.
+*{   INSERT         DE1K916494                                        1
+
+*--- Beginn Erweiterung Merken der Originalmenge R.König 09.12.2003
+*--- Änderung S. Frey am 24.02.2004: folgendes funktioniert nur, wenn
+*--- der Lieferbeleg manuell angelegt wird, wird jedoch der Baustein
+*--- GN_DELIVERY_CREATE benutzt, ist zu diesem Zeitpunkt LGMNG, sowie
+*--- die Umrechnungsfaktoren initial...daher machen wir das an einer
+*--- anderen Stelle.
+*if t180-trtyp = 'H'. "nur bei Neuanlage
+*  lips-YYRFBED_ORIG = lips-lgmng. "in BasisME
+*endif.
+*--- Ende   Erweiterung R.König Merken der Originalmenge 09.12.2003
+*}   INSERT
+
+ENDFORM.
+*eject
+
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_NUMBER_RANGE                                    *
+*---------------------------------------------------------------------*
+*       This userexit can be used to determine the numberranges for   *
+*       the internal document number.                                 *
+*                                                                     *
+*       US_RANGE_INTERN - internal number range                       *
+*                                                                     *
+*       This form is called from form BELEG_SICHERN                   *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_NUMBER_RANGE USING US_RANGE_INTERN.
+
+* Example: Numer range from TVLK like in standard
+* US_RANGE_INTERN = TVLK-NUMKI.
+
+ENDFORM.
+*eject
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_READ_DOCUMENT                                   *
+*---------------------------------------------------------------------*
+*       This userexit can be used to read data in additional tables   *
+*       when the program reads a delivery.                            *
+*                                                                     *
+*       This form is called at the end of form BELEG_LESEN.           *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_READ_DOCUMENT.
+
+ENDFORM.
+*eject
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_SAVE_DOCUMENT                                   *
+*---------------------------------------------------------------------*
+*       This userexit can be used to save data in additional tables   *
+*       when a document is saved.                                     *
+*                                                                     *
+*       If field T180-TRTYP contents 'H', the document will be        *
+*       created, else it will be changed.                             *
+*                                                                     *
+*       This form is called at from form BELEG_SICHERN, before COMMIT *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_SAVE_DOCUMENT.
+
+* Example:
+* CALL FUNCTION 'ZZ_EXAMPLE'
+*      IN UPDATE TASK
+*      EXPORTING
+*           ZZTAB = ZZTAB.
+*{   INSERT         ZE1K9A17Q6                                        1
+*--- Datendeklarationen -----------------------------------------------*
+types: begin of tp_yyrtermerr,
+         index like sy-tabix,
+         vbeln like likp-vbeln,
+         termerr like yrlitp-yyrtermerr,
+       end of tp_yyrtermerr.
+data: it_yyrtermerr type standard table of tp_yyrtermerr,
+      wa_yyrtermerr type tp_yyrtermerr.
+data: it_yrlitp type standard table of yrlitp,
+      wa_yrlitp type yrlitp.
+*--- Verarbeitungsteil ------------------------------------------------*
+if t180-trtyp = 'H'. "nur bei Neuanlage
+*--- Fehler bei der Versandterminierung werden in Tabelle YRLITP proto-
+*--- kolliert.
+  import IT_YYRTERMERR to IT_YYRTERMERR from memory id 'YYRTERMERR'.
+  if sy-subrc is initial and not it_yyrtermerr[] is initial.
+    clear it_yrlitp.
+    loop at it_yyrtermerr into wa_yyrtermerr.
+      read table xlikp index wa_yyrtermerr-index.
+      move xlikp-vbeln to wa_yrlitp-yyrvbeln.
+      move wa_yyrtermerr-termerr to wa_yrlitp-yyrtermerr.
+      append wa_yrlitp to it_yrlitp.
+    endloop.
+    CALL FUNCTION 'Y_R_TERMERR_UPDATE' in update task
+         TABLES
+              it_yrlitp = it_yrlitp.
+
+  endif.
+endif.
+
+* bei der Kommirückmeldung schreiben wir gewisse Daten in die Zusatz-
+* Tabelle YRLIKP (Kopfdaten)
+* ACHTUNG: auch hier wird davon ausgegangen, daß immer nur genau
+*          ein Beleg in der Verarbeitung ist!!!
+
+* ÄNDERUNG: 18.01.2005 P. Wißler                  "PW20050118
+* Auch bei Löschung sollen Datümer in YRLIKP eingearbeitet werden!
+* if not V50AGL-kommirueckmeldung is initial and ylikp_updkz ne 'D'.
+if not V50AGL-kommirueckmeldung is initial.              "PW20050118
+  if not s_yrlikp is initial.
+    CALL FUNCTION 'Y_R_YRLIKP_UPDATE' in update task
+         EXPORTING
+              i_yrlikp = s_yrlikp.
+  endif.
+endif.
+free memory id 'ADDOBDLV_H'.
+free memory id 'YYRTERMERR'.
+*}   INSERT
+
+ENDFORM.
+*eject
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_SAVE_DOCUMENT_PREPARE                           *
+*---------------------------------------------------------------------*
+*       This userexit can be used for changes or checks, before a     *
+*       document is saved.                                            *
+*                                                                     *
+*       If field T180-TRTYP contents 'H', the document will be        *
+*       created, else it will be changed.                             *
+*                                                                     *
+*       This form is called at the beginning of form BELEG_SICHERN    *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_SAVE_DOCUMENT_PREPARE.
+*{   INSERT         DE1K907099                                        1
+*$*$--------------------------------------------------------------------
+*--- Dieser Exit ermöglicht (umfassend), die Lieferungsdaten zu verän-
+*--- dern. Er wird durchlaufen bei der Neuanlage von Lieferungen sowohl
+*--- im Dialog, als auch durch Funktionen wie Filialauftrag oder Bapi
+*--- (GN_DELIVERY_CREATE) und bei Lieferungsänderungen, ebenfalls im
+*--- Dialog oder per Bapi, z.B. OutboundDelivery.ConfirmDecentral
+*$*$--------------------------------------------------------------------
+*----------------------------------------------------------------------*
+*--- Einsatz bei dm ---------------------------------------------------*
+* In der Kommi-Rückmeldung durch Bapi OutboundDelivery.ConfirmDecentral
+* oder der allg. Lieferschnittstelle (WHSCON / DELVRY0x)
+* besteht nicht die Möglichkeit, den Lagerort für den WA zurückzumelden,
+* d.h. die Lieferung geht davon aus, daß der Lagerort zuvor bestimmt ist
+* und nicht mehr geändert wird. In diesem Exit besteht jedoch die Mögl.
+* die internen Tabellen der Lieferungsdaten (XLIPS, YLIPS, XVBUP, YVBUP,
+* etc... so zu verändern, daß der Lagerort überschrieben wird.
+* Dabei bestehen folgende Abhängigkeiten:
+* Die "X"-Tabellen enthalten den aktuellen bzw. geänderten Stand der
+* Lieferungsdaten, die Y-Tabellen hingegen die Lieferungsdaten vor der
+* Änderung. Eine Änderung wird in der Verbuchung dann berücksichtigt,
+* wenn in der entsprechenden "X"-Tabelle das Kennzeichen UPDKZ = U ge-
+* setzt ist und in der "Y"-Tabelle der ungeänderte Satz enthalten ist.
+* Es kann also unterschiedliche Konstellationen geben:
+* 1) Es wird eine (für die Lieferung als solche erkannte) Änderung per
+*    Bapi zurückgemeldet, dann ist die Bedingung bereits erfüllt
+* 2) Es wird keine Änderung in diesem Sinne zurückgemeldet, sondern die-
+*    selben Daten (wie bei der letzten Rückmeldung) nochmal bestätigt
+*    oder es wird ein anderer Lagerort (in ungenutztem LIPS-Feld!!!)
+*    zurückgemeldet
+* 3) Es wird eine Position automatisch in die Lieferung hineingeneriert,
+*    wie es bei Ladehilfsmitteln (Paletten, etc) im Rahmen der VSE-Bil-
+*    dung der Fall sein kann. Dies wird jedoch aktuell bei dm nicht
+*    eingesetzt, aber ggf. perspektivisch ist dies interessant. Bei
+*    solchen Positionen existiert kein Satz in YLIPS, und ein neuer
+*    Satz in XLIPS mit UPDKZ = I. Sofern die generierte Position bereits
+*    enthalten war, steht in XLIPS die Position zweimal, einmal mit
+*    UPDKZ = D und einmal mit I, in YLIPS einmal mit UPDKZ = D.
+* Den zurückzumeldenden Lagerort holen wir uns aus dem ABAP-Memory,
+* der User-Exit EXIT_SAPLV55K_002 aus der SAP-Erweiterung V55K0002
+* schreibt diesen in das ABAP-Memory, sofern die Kommirueckmeldung per
+* DELVRY0x und WHSCON kommt, andernfalls bei Nutzung SHP_OBDLV_CONFIRM_
+* DECENTRAL wird das ABAP-Memory aus Exit exit_saplv50i_004 der Erweite-
+* rung V50B0001 versorgt.
+* Dieser Exit hier ist also je nach konkretem Einsatz der Kommirückmel-
+* dung immer im Zusammenhang mit den beiden genannten Exits zu sehen!!!
+*----------------------------------------------------------------------*
+* ACHTUNG: bei der Erzeugung von Lieferungen kann es vorkommen, daß ggf.
+*          gleichzeitig mehrere Lieferungen in einem Ablauf behandelt
+*          werden müssen. Das ist z.B. der Fall, wenn die Lieferungen
+*          per GN_DELIVERY_CREATE erzeugt werden. Dieser Umstand wird
+*          bei der Terminierung und allen anderen Funktionen beim er-
+*          zeugen der Lieferung (AKTYP = H) berücksichtigt.
+*          NICHT berücksichtigt ist dieser Umstand beim Ändern von Lief-
+*          erungen, egal, ob durch Dialog, Kommirückmeldung, etc., da
+*          grundsätzlichj davon ausgegangen wird, daß dann immer nur
+*          genau ein Beleg verarbeitet wird, was in den verwendeten
+*          Funktionen auch aktuell der Fall ist.
+*          Aus Performancegründen bauen wir uns bei der Neuanlage von
+*          Lieferungen Puffer auf, da es der Standardfall ist, daß
+*          mehrere Lieferungen erzeugt werden.
+*----------------------------------------------------------------------*
+*  Aufruf des neuen FB Y_RLF_VERSANDTERMINE_ERMITTELN
+*  Das Ermitteln der Versandtermine erfolgt über das Auslesen des neuen
+*  Anlieferplans (V0210)
+*  Änderung der Prüfung ob Liefertermin zu weit in der Zukunft liegt
+*
+*  Angepasste Stellen sind mit BKE20070130 gekennzeichnet.
+*  Britta Kersten 30.01.2007
+*----------------------------------------------------------------------
+*  Ausbau der Versandstellen-Referenzierung
+*
+*  Angepasste Stellen sind mit HST20071012 gekennzeichnet.
+*  Henrik Stegmaier 12.10.2007
+*----------------------------------------------------------------------
+* 2010-07-27  F0E00166     Britta Kersten         BKE20100727
+*             Auslesen des ABAP memory xaddobdlv_p entfernt
+*             ==> Programmcode stammt noch aus der Zeit als
+*                 Meckenheim und Weilerswist im LVS über einen
+*                 Betrieb mit zwei Lagerorten abgebildet waren.
+*                 Da konnte es vorkommen, dass ein Artikel beim
+*                 Anlegen der Lieferung noch in Lagerort A war,
+*                 bei der Kommissionierung aber dann in Lagerort B
+*             ==> diese Konstellation gibt es nicht mehr !
+*----------------------------------------------------------------------
+* 2021-11-10  F0E00166     Britta Kersten         BKE20211110
+*             RFICO-37726
+*             V4565 - Versorgung Tabelle YRLIKP
+*----------------------------------------------------------------------
+* 2021-11-05  D0E04521     Timo Bendixen          TB20211105
+*             RFICO-37099: Anpassung Tabellen YRCLFARTS und
+*             YRCVGARTG
+*----------------------------------------------------------------------
+* 2022-04-08  F0E00166     Britta Kersten         BKE20220408
+*             RFICO-39845
+*             V4565 - Korrektur Verarbeitung YRLIKP
+*----------------------------------------------------------------------
+* 2022-12-21  D0E05584     Tobias Poreda          TP20221221
+*             RFICO-43015 V4967 - SHIFT PC3 - Anpassung Tabelle
+*             YRCLFARTS (Rückbau BUKRS)
+*-------------------------------------------------------------------
+
+*--- Datendeklarationen -----------------------------------------------
+tables: yrclfarts,  " Zusatzsteuerung Lieferarten
+        yrcvgartg.  " Steuerung Vorgangsarten
+*       yrcvstel.   " Zusatzsteuerung Versandstellen    HST20071012
+
+*data: begin of XADDOBDLV_p occurs 0,                   BKE20100727
+*      posnr like lips-posnr,                           BKE20100727
+*      lgort like lips-lgort,                           BKE20100727
+*      end of XADDOBDLV_p.                              BKE20100727
+data: it_yytvlk type standard table of tvlk,
+      wa_yytvlk type tvlk.
+data: it_yyknvv type standard table of knvv,
+      wa_yyknvv type knvv.
+data: it_yrclfarts type standard table of yrclfarts,
+      wa_yrclfarts type yrclfarts.
+data: it_yrcvgartg type standard table of yrcvgartg,
+      wa_yrcvgartg type yrcvgartg.
+*data: it_yrcvstel  type standard table of yrcvstel,    HST20071012
+*      wa_yrcvstel  type yrcvstel.                      HST20071012
+data: tabix like sy-tabix,
+      xlikp_tabix like sy-tabix.
+data: wa_yylips like lips.
+data: yydatum like sy-datum,
+      yyuzeit like sy-uzeit,
+      idiff type i,
+      yynumderr like yrcvgartg-yyrnumderr,
+      zzupdkz like ylikp_updkz.
+types: begin of tp_yyrtermerr,
+         index   like sy-tabix,
+         vbeln   like likp-vbeln,
+         termerr like yrlitp-yyrtermerr,
+       end of tp_yyrtermerr.
+data: it_yyrtermerr type standard table of tp_yyrtermerr,
+      wa_yyrtermerr type tp_yyrtermerr.
+
+data: addobdlv_h type yrsaddobdlvh.
+*data: s_yrlikp type yrlikp.
+data: tstp type timestamp.
+data: wa_xlikp like xlikp.
+
+DATA: lv_bukrs TYPE bukrs.
+
+*--- Verarbeitungsteil ------------------------------------------------*
+clear zzupdkz.
+
+*loop at xlikp.
+*perform message_handling using '000010'
+*                               '000'
+*                               'E'
+*                               'Y1'
+*                               'doppelte Artikel'
+*                               space
+*                               space
+*                               space.
+*endloop.
+
+if t180-trtyp = aktyp-create.
+*$*$ Setzen der Über- und Unterlieferungstoleranzen bei Umlagerungslief.
+  loop at xlikp.
+    clear wa_yytvlk.
+    if tvlk-lfart ne xlikp-lfart.
+* TVLK nachlesen
+      read table it_yytvlk into wa_yytvlk with key lfart = xlikp-lfart.
+      if not sy-subrc is initial.
+         SELECT * FROM yrcvgartg INTO wa_yrcvgartg UP TO 1 ROWS                               "$smart: #601
+                            WHERE yyrvgartg EQ wa_yrclfarts-yyrvgartg
+                            ORDER BY PRIMARY KEY.                                                "$smart: #601
+            ENDSELECT."#EC CI_NOFIRST                                                            "$smart: #601
+        if sy-subrc is initial.
+          append wa_yytvlk to it_yytvlk.
+        endif.
+      endif.
+    else.
+      move tvlk to wa_yytvlk.
+    endif.
+
+    if wa_yytvlk-aufer = 'U'. "Umlagerung
+      read table xlips into wa_yylips with key vbeln = xlikp-vbeln.
+      if knvv-kunnr ne xlikp-kunnr or
+         knvv-vkorg ne xlikp-vkorg or
+         knvv-vtweg ne wa_yylips-vtweg.
+* Kunden nachselektieren
+        clear wa_yyknvv.
+        read table it_yyknvv into wa_yyknvv
+                   with key kunnr = xlikp-kunnr
+                            vkorg = xlikp-vkorg
+                            vtweg = wa_yylips-vtweg.
+        if not sy-subrc is initial.
+          CALL FUNCTION 'KNVV_SINGLE_READ'
+               EXPORTING
+                    i_kunnr            = xlikp-kunnr
+                    i_vkorg            = xlikp-vkorg
+                    i_vtweg            = wa_yylips-vtweg
+                    i_spart            = wa_yylips-spart
+*                   I_RESET_BUFFER     =
+*                   I_BYPASSING_BUFFER =
+              IMPORTING
+                   O_KNVV             = wa_yyknvv
+              EXCEPTIONS
+                   NOT_FOUND          = 1
+                   PARAMETER_ERROR    = 2
+                   OTHERS             = 3.
+          if sy-subrc is initial.
+            append wa_yyknvv to it_yyknvv.
+          endif.
+        endif.
+      else.
+        move knvv to wa_yyknvv.
+      endif.
+      xlips-uebtk = wa_yyknvv-uebtk.
+      xlips-uebto = wa_yyknvv-uebto.
+      xlips-untto = wa_yyknvv-untto.
+      modify xlips transporting uebtk uebto untto
+                               where vbeln = xlikp-vbeln.
+    endif.
+  endloop.
+*$*$********************************************************************
+*$*$ Überlagerung der Standard-Versandterminierung per Anlieferplan ****
+*$*$********************************************************************
+*--- Die Terminierung wird nur bei Anlage der Lieferung durchlaufen ---*
+
+  clear it_yyrtermerr[].
+*--- soll in der Versandstelle nach Anlieferplan terminiert werden? ---*
+  loop at xlikp.
+*    clear yrcvstel.                                         HST20071012
+    move sy-tabix to xlikp_tabix.
+    move xlikp_tabix to wa_yyrtermerr-index.
+
+* -- HST20071012 ---------------------------------------------------
+*    clear wa_yrcvstel.
+*    read table it_yrcvstel into wa_yrcvstel with key
+*                           yyrvstel = xlikp-vstel.
+*    if not sy-subrc is initial.
+*      select single * from yrcvstel into wa_yrcvstel
+*                                    where yyrvstel eq xlikp-vstel.
+*      if sy-subrc is initial.
+*        append wa_yrcvstel to it_yrcvstel.
+*      endif.
+*    endif.
+*    check sy-subrc is initial.
+*    check wa_yrcvstel-yyrkznoterm is initial.
+* -- HST20071012 ---------------------------------------------------
+
+*--- ermitteln ob, und welche Art Terminierung in Abhängigkeit der ----*
+*--- Lieferart durchzuführen ist --------------------------------------*
+
+    TRY.
+      lv_bukrs = ycl_ca_org=>get_bukrs_from_vkorg( piv_vkorg = xlikp-vkorg ).  "TB20211105
+    CATCH ycx_ca_org.                                                          "TB20211105
+      CLEAR lv_bukrs.                                                          "TB20211105
+    ENDTRY.                                                                    "TB20211105
+
+    READ TABLE it_yrclfarts INTO wa_yrclfarts
+                            WITH KEY  yyrlfart = xlikp-lfart.
+    if not sy-subrc is initial.
+      SELECT SINGLE * FROM yrclfarts INTO wa_yrclfarts
+                                     WHERE yyrlfart = xlikp-lfart.
+      if sy-subrc is initial.
+        append wa_yrclfarts to it_yrclfarts.
+      endif.
+    endif.
+    if not sy-subrc is initial.
+* für diese Lieferart soll die Standardterminierung greifen, d.h. wir
+* steigen aus.
+    else.
+      if not wa_yrclfarts-yyrkznoterm is initial.
+* für diese Lieferart soll die Standardterminierung greifen, d.h. wir
+* steigen aus.
+      else.
+        move wa_yrclfarts-yyrnumderr to yynumderr.
+* Vorgangsart lesen
+        if wa_yrclfarts-yyrvgartg is initial.
+* dann findet die Terminierung ebenfalls im Standard statt, d.h. wir
+* steigen aus.
+        else.
+          READ TABLE it_yrcvgartg INTO wa_yrcvgartg
+                     WITH KEY yyrvgartg = wa_yrclfarts-yyrvgartg.
+          if not sy-subrc is initial.
+            SELECT * FROM yrcvgartg INTO wa_yrcvgartg UP TO 1 ROWS                               "$smart: #601
+                            WHERE yyrvgartg EQ wa_yrclfarts-yyrvgartg
+                            ORDER BY PRIMARY KEY.                                                "$smart: #601
+            ENDSELECT."#EC CI_NOFIRST                                                            "$smart: #601
+            if not sy-subrc is initial.
+              wa_yyrtermerr-termerr = '03'.
+              append wa_yyrtermerr to it_yyrtermerr.
+            else.
+              append wa_yrcvgartg to it_yrcvgartg.
+            endif.
+          endif.
+          if sy-subrc is initial.
+             if yynumderr is initial.
+* wenn keine Feinsteuerung zur Lieferart vorhanden ist, dann nehmen wir
+* den Wert aus der Vorgangsart.
+               move wa_yrcvgartg-yyrnumderr to yynumderr.
+             endif.
+* wir gehen immer auf den Liefertermin, um aus BLTP zu lesen...
+             yydatum = xlikp-lfdat.
+             yyuzeit = xlikp-lfuhr.
+* HINWEIS: LIKP-LFUHR sitzt ggf. auf einem inkonsistenten Wert. Ursache
+*          nicht erforscht. Da dies aber zu Phase 3 irrelevant ist,
+*          setzen wir die Uhrzeiten auf initial.
+             clear yyuzeit.
+
+             move-corresponding xlikp to ylikp.
+
+*--- Termine aus dem Bestell- und Lieferterminplan ermitteln ----------*
+* dazu benötigen wir zur Ermittlung von Referenzen zwischen Versand-
+* stellen den Betrieb (der ersten Position)
+             read table xlips with key vbeln = xlikp-vbeln.
+
+*            BKE20070130 Umstellung des Zugriffs auf die Versandtermine,
+*                        Aufruf des neuen FB
+*                        - Start -
+*             CALL FUNCTION 'Y_R_VERSANDTERMINE_ERMITTELN'
+*                  EXPORTING
+*                       vgartg  = wa_yrclfarts-yyrvgartg
+*                       werks   = xlips-werks
+*                       vstel   = xlikp-vstel
+*                       kunnr   = xlikp-kunnr
+*                       datum   = yydatum
+*                  IMPORTING
+*                       KODAT   = xlikp-kodat
+*                       WADAT   = xlikp-wadat
+*                       LFDAT   = xlikp-lfdat
+*                       KOUHR   = xlikp-kouhr
+*                       WAUHR   = xlikp-wauhr
+*                       LFUHR   = xlikp-lfuhr
+*                  EXCEPTIONS
+*                       VGART_UNDEFINED        = 1
+*                       BEDAT_ERROR            = 2
+*                       KODAT_ERROR            = 3
+*                       WADAT_ERROR            = 4
+*                       LFDAT_ERROR            = 5
+*                       NO_TERMENTRIES_FOUND   = 6
+*                       VSTEL_REF_ERROR        = 7
+*                       OTHERS                 = 8.
+*
+             CALL FUNCTION 'Y_RLF_VERSANDTERMINE_ERMITTELN'
+               EXPORTING
+                 piv_vgart               = wa_yrclfarts-yyrvgartg
+                 piv_vstel               = xlikp-vstel
+                 piv_kunnr               = xlikp-kunnr
+                 piv_datum               = yydatum
+                 PIV_TERM_RELEVANT       = 'X'
+               IMPORTING
+*                PEV_BEDAT               =
+                 PEV_KODAT               = xlikp-kodat
+                 PEV_WADAT               = xlikp-wadat
+                 PEV_WEDAT               = xlikp-lfdat
+                 PEV_KOUHR               = xlikp-kouhr
+                 PEV_WAUHR               = xlikp-wauhr
+                 PEV_LFUHR               = xlikp-lfuhr
+               EXCEPTIONS
+                 NO_DATA_FOUND           = 1
+                 OTHERS                  = 2
+                 .
+*            BKE20070130 - Ende -
+
+                if sy-subrc is initial.
+* wir übernehmen pauschal den Kommitermin in Transportdispo- und Lade-
+* Termin.
+                  move xlikp-kodat to xlikp-tddat.
+                  move xlikp-kouhr to xlikp-tduhr.
+*                  move xlikp-kodat to xlikp-lddat.   "CP20210812D
+*                  move xlikp-kouhr to xlikp-lduhr.   "CP20210812D
+                  move xlikp-wadat to xlikp-lddat.    "CP20210812  WA-Datum geht nun in das LDDAT
+                  move xlikp-wauhr to xlikp-lduhr.    "CP20210812  WA-Datum geht nun in das LDDAT
+
+* prüfen, ob der Liefertermin zu weit in der Zukunft liegt (gemäß Steue-
+* rung in YRCLFARTS bzw. YRCVGARTG)
+                  if yynumderr gt 0.
+*                   BKE20070130 - Start -
+*                    idiff = xlikp-lfdat - sy-datum.
+                    idiff = xlikp-lfdat - yydatum.
+*                   BKE20070130 - Ende  -
+                    if idiff gt yynumderr.
+                      wa_yyrtermerr-termerr = '06'.
+                      append wa_yyrtermerr to it_yyrtermerr.
+                    endif.
+                  endif.
+
+* Beginn Änderung 07.07.03 R.König
+* Das Materialbereitstellungsdatum auf Positonsebene muss für die
+* Bedarfsfortschreibung an das Kommidatum angepasst werden.
+* Leider wurden hier schon die Bedarfe ermittelt, also auch die
+* Einzel- und Summenbedarfe anpassen.
+
+* Summenbedarfe...
+* ACHTUNG: diese Logik geht davon aus, daß die Bedarfsmengen grundsätzl.
+*          in Basismengeneinheit in der XVBBS stehen!
+                  loop at xlips where vbeln eq xlikp-vbeln
+                                and   sumbd ca 'BCD'.
+                    loop at xvbbs where matnr eq xlips-matnr
+                                  and   werks eq xlips-werks
+                                  and   mbdat eq xlips-mbdat
+                                  and   lgort eq xlips-lgort
+                                  and   charg eq xlips-charg.
+                      subtract xlips-lgmng from xvbbs-omeng.
+                      subtract xlips-lgmng from xvbbs-vmeng.
+                      modify xvbbs.
+                      move xlikp-kodat to xvbbs-mbdat.
+                      move xlips-lgmng to xvbbs-omeng.
+                      move xlips-lgmng to xvbbs-vmeng.
+                      collect xvbbs.
+                    endloop.
+                  endloop.
+
+* Bereitstellungsdatum Lieferpositionen...
+                  xlips-mbdat = xlikp-kodat.
+                  modify xlips transporting mbdat
+                               where vbeln = xlikp-vbeln.
+
+* Einzelbedarfe...
+                  xvbbe-mbdat = xlikp-kodat.
+                  modify xvbbe transporting mbdat
+                               where vbeln = xlikp-vbeln.
+* Ende Änderung 07.07.03 R.König
+                else.
+* wir merken uns den Fehler, damit wir diesen protokollieren können
+*                 BKE20070130 - Start  -
+*                  if sy-subrc eq 1.
+*                    wa_yyrtermerr-termerr = '02'.
+*                  elseif sy-subrc eq 6.
+*                    wa_yyrtermerr-termerr = '04'.
+*                  elseif sy-subrc eq 7.
+*                    wa_yyrtermerr-termerr = '07'.
+*                  else.
+*                    wa_yyrtermerr-termerr = '05'.
+*                  endif.
+                  if sy-subrc eq 1.
+                    wa_yyrtermerr-termerr = '04'.
+                  else.
+                    wa_yyrtermerr-termerr = '05'.
+                  endif.
+*                 BKE20070130 - Ende  -
+
+                  append wa_yyrtermerr to it_yyrtermerr.
+
+* Im Fehlerfalle übernehmen wir den "Einstiegstermin" in alle Termine
+                  move yydatum to xlikp-kodat.
+                  move yyuzeit to xlikp-kouhr.
+                  move yydatum to xlikp-wadat.
+                  move yyuzeit to xlikp-wauhr.
+                  move yydatum to xlikp-lfdat.
+                  move yyuzeit to xlikp-lfuhr.
+                  move yydatum to xlikp-tddat.
+                  move yyuzeit to xlikp-tduhr.
+                  move yydatum to xlikp-lddat.
+                  move yyuzeit to xlikp-lduhr.
+                endif.
+              xlikp-updkz = 'I'.
+              modify xlikp index xlikp_tabix.
+            append ylikp.
+          endif.
+        endif.
+      endif.
+    endif.
+  endloop.  "XLIKP
+* Aus der Summenbedarfstabelle ggf. jetzt noch die NULL-Zeilen heraus-
+* löschen. Das sind die Einträge zum aus der Standardterminierung er-
+* mittelten Bereitstellungsdatum, deren Termine geändert wurden
+  delete xvbbs where omeng is initial.
+
+* Terminierungsfehler der Verbuchung übergeben
+  if not it_yyrtermerr[] is initial.
+    export it_yyrtermerr to memory id 'YYRTERMERR'.
+  endif.
+
+* Die Originalmengen aus der Lieferung im Zusatzfeld merken...
+  loop at xlips.
+    move xlips-lgmng to xlips-YYRFBED_ORIG.
+    modify xlips.
+  endloop.
+endif.
+
+*$*$********************************************************************
+*$*$ Löschen Lieferung im Dialog oder per Kommirückmeldung: ggf. löschen
+*$*$ wir ja nicht physisch, sondern je nach Steuerung in YRCLFARTS setze
+*$*$ n wir den Positionstyp um, initialisieren die Liefermenge und die
+*$*$ Bewegungsart ******************************************************
+*$*$********************************************************************
+clear yrclfarts.
+*if t180-trtyp = aktyp-change and ylikp_updkz = 'D'.
+if t180-trtyp = aktyp-change.
+
+*$*$ Änderung aufgrund physisch gelöschter Lieferungen... wir deakti-
+*$*$ vieren die Abfrage auf den Belegfluß...
+* verhindern, daß das Coding durchlaufen wird beim WE, etc.
+*--- in Folgendem könnte eine Gefahr liegen!!!, wenn wir aber das Coding
+*--- nicht durchlaufen wollen beim WE, und weiteren Folgeprozessen, dann
+*--- müssen wir ja ein Kriterium finden...
+*  read table yvbfa index 1.  -->deaktiviert
+*  check not sy-subrc is initial. --> deaktiviert
+*--- ACHTUNG: ---------------------------------------------------------*
+* Wenn bereits ein Eintrag in yvbfa steht, dann handelt es sich NICHT
+* um die erste Kommirückmeldung, etc. Wenn wir wollen, daß mehrfach
+* zurückgemeldet werden kann, so müssen wir die XVBFA (den Belegfluß)
+* gezielter abfragen!!!!!!
+*----------------------------------------------------------------------*
+*$*$ ENDE Deaktivierung -----------------------------------------------*
+  zzupdkz = ylikp_updkz.
+* Puffern bringt nix, da jede einzelne Lieferung durchlaufen wird und
+* die Puffer dann wieder initialisiert wären
+  read table xlips with key updkz = 'D' transporting no fields.
+  if sy-subrc is initial or ylikp_updkz = 'D'.
+    read table xlikp index 1. "immer nur ein Beleg in der Verarbeitu
+    select single * from yrclfarts where yyrlfart = xlikp-lfart.
+    if sy-subrc is initial and yrclfarts-yyrloeart gt 0.
+* Kopf:
+      if ylikp_updkz = 'D'. "ganzer Beleg ist zu löschen
+* prüfen, ob ein Positionstyp in YRCLFARTS eingetragen ist
+        if yrclfarts-yyrpstym_vl is initial.
+* hier liegt eigentlich ein Pflegefehler vor, aber wir lassen die Lösch-
+* ung trotzdem zu, da die Verantwortung für die Pflege der YRCLFARTS
+* bei FD liegt und nicht bei der Fachabteilung und davon auszugehen ist,
+* daß alles sauber gepflegt ist.
+        endif.
+        xlikp-updkz = 'U'.
+        modify xlikp index 1.
+        ylikp_updkz = 'U'.
+        xlikp_updkz = 'U'.
+* Wenn die Lieferung nicht physisch gelöscht wird, dann müssen wir
+* den MESSAGE_UPDATE unterdrücken, da sonst die bereits gefundenen
+* Nachrichten (auch wenn sie verarbeitet sind) gelöscht werden.
+        NO_MESSAGES_UPDATE = 'X'.
+
+* Kopfstati VBUK: ACHTUNG wir gehen davon aus, daß immer nur ein Beleg!
+        if xlikp-vlstk is initial.
+* Wir erkennen bei unserer Art der Löschung bei kommirelevanten Belegen
+* nicht mehr, ob diese WA-gebucht werden können, da durch die Löschung
+* der Gesamtkommistatus immer noch auf A sitzt. Daher setzen wir einen
+* USER-Status, um bei der WA-Buchung diese Belege erkennen zu können
+          xvbuk[] = yvbuk[].
+          read table xvbuk index 1.
+          xvbuk-UVK01 = 'C'.
+          xvbuk-updkz = 'U'.
+          modify xvbuk index 1.
+          clear yvbuk[].
+        else.
+          clear xvbuk[].
+          clear yvbuk[].
+        endif.
+* Positionsstati VBUP: ACHTUNG wir gehen davon aus, daß immer nur ein...
+*        clear xvbup[].
+*        clear yvbup[].
+
+*        read table xvbuk index 1.
+*        if sy-subrc is initial.
+** wir nehmen der Vorgängerbeleg aus dem Belegfluß.
+*          read table yvbuk with key vbeln = xvbuk-vbeln.
+*          if sy-subrc is initial.
+*            move yvbuk to xvbuk.
+*            modify xvbuk index 1.
+*          endif.
+*          read table yvbuk with key vbeln = xlikp-vbeln.
+*          if sy-subrc is initial.
+*            yvbuk-updkz = 'U'.
+*            modify yvbuk index sy-tabix.
+*          endif.
+*        endif.
+      endif.
+
+
+* Partner: hier hat es ja keine Änderung gegeben!
+      refresh yvbpa.
+*    loop at yvbpa.
+*      move yvbpa to xvbpa.
+*      xvbpa-updkz = 'U'.
+*      append xvbpa.
+*    endloop.
+*  append lines of yvbpa to xvbpa.
+*  append lines of yvbpa2 to xvbpa2.
+* Positionen:
+*    loop at xlips.
+      loop at xlips where updkz = 'D'.
+        move sy-tabix to tabix.
+*--- XLIPS entsprechend verändern -------------------------------------*
+        move-corresponding xlips to ylips.
+        move yrclfarts-yyrpstym_vl to xlips-pstyv.
+        clear xlips-bwart.
+        if yrclfarts-yyrloeart eq 2.
+* auch noch die Liefermenge initialisieren
+          clear xlips-lfimg.
+          clear xlips-lfimg_flo.
+          clear xlips-lgmng.
+          clear xlips-lgmng_flo.
+        endif.
+        xlips-updkz = 'U'.
+        modify xlips index tabix.
+* den Belegfluß wieder "aufbauen".
+*        read table yvbfa with key vbeln = xlikp-vbeln
+*                                  posnn = xlips-posnr.
+*        if sy-subrc is initial.
+*          yvbfa-updkz = 'U'.
+*          modify yvbfa index sy-tabix.
+*          read table xvbfa with key vbeln = xlikp-vbeln
+*                                    posnn = xlips-posnr.
+*          if not sy-subrc is initial.
+*            move yvbfa to xvbfa.
+*            clear: xvbfa-rfmng,
+*                   xvbfa-rfmng_flo,
+*                   xvbfa-rfmng_flt,
+*                   xvbfa-brgew,
+*                   xvbfa-volum,
+*                   xvbfa-ntgew,
+*                   xvbfa-bwart.
+*            append xvbfa.
+*          else.
+*            xvbfa-updkz = 'U'.
+*            clear: xvbfa-rfmng,
+*                   xvbfa-rfmng_flo,
+*                   xvbfa-rfmng_flt,
+*                   xvbfa-brgew,
+*                   xvbfa-volum,
+*                   xvbfa-ntgew,
+*                   xvbfa-bwart.
+*            modify xvbfa index sy-tabix.
+*          endif.
+*        endif.
+*--- ggf. auch den YLIPS-Satz hinzufügen, weil wir ja so tun, als hätten
+*--- wir eine Änderung, falls es nicht wirklich eine ist (aus Sicht der
+*--- Lieferung im Standard)
+        read table ylips with key posnr = xlips-posnr.
+        if not sy-subrc is initial.
+          move xlips-updkz to ylips-updkz.
+          append ylips.
+        else.
+          move xlips-updkz to ylips-updkz.
+          modify ylips index sy-tabix.
+        endif.
+      endloop.
+    endif.
+  endif.
+endif.
+
+*$*$********************************************************************
+*$*$ Sonderbehandlungen bei der Kommissionierrückmeldung ***************
+*$*$********************************************************************
+
+* ÄNDERUNG: 18.01.2005 P. Wißler            "PW20050118
+* Auch bei Löschung sollen Datümer in YRLIKP eingearbeitet werden!
+*if V50AGL-kommirueckmeldung = 'X' and zzupdkz ne 'D'.
+if V50AGL-kommirueckmeldung = 'X'.                        "PW20050118
+  clear s_yrlikp.
+  import addobdlv_h to addobdlv_h from memory id 'ADDOBDLV_H'.
+  if not addobdlv_h is initial.
+    move likp-vbeln          to s_yrlikp-yyrvbeln.
+* Zeitzonen-Konvertierung abgebender Standort
+    if not addobdlv_h-tzonis is initial and
+       not likp-tzonis       is initial and
+           likp-tzonis       ne addobdlv_h-tzonis.
+      CONVERT DATE addobdlv_h-kodat TIME addobdlv_h-kouhr
+              INTO TIME STAMP TSTP TIME ZONE addobdlv_h-tzonis.
+      CONVERT TIME STAMP tstp TIME ZONE likp-tzonis
+              INTO DATE addobdlv_h-kodat TIME addobdlv_h-kouhr.
+      CONVERT DATE addobdlv_h-lddat TIME addobdlv_h-lduhr
+              INTO TIME STAMP TSTP TIME ZONE addobdlv_h-tzonis.
+      CONVERT TIME STAMP tstp TIME ZONE likp-tzonis
+              INTO DATE addobdlv_h-lddat TIME addobdlv_h-lduhr.
+      CONVERT DATE addobdlv_h-wadat TIME addobdlv_h-wauhr
+              INTO TIME STAMP TSTP TIME ZONE addobdlv_h-tzonis.
+      CONVERT TIME STAMP tstp TIME ZONE likp-tzonis
+              INTO DATE addobdlv_h-wadat TIME addobdlv_h-wauhr.
+    endif.
+* Zeitzonen-Konvertierung empfangender Standort
+    if not addobdlv_h-tzonrc is initial and
+       not likp-tzonrc       is initial and
+           likp-tzonrc       ne addobdlv_h-tzonrc.
+      CONVERT DATE addobdlv_h-lfdat TIME addobdlv_h-lfuhr
+              INTO TIME STAMP TSTP TIME ZONE addobdlv_h-tzonrc.
+      CONVERT TIME STAMP tstp TIME ZONE likp-tzonrc
+              INTO DATE addobdlv_h-lfdat TIME addobdlv_h-lfuhr.
+    endif.
+    move addobdlv_h-kowdat   to s_yrlikp-yyrkowdat.
+    move addobdlv_h-tzonis   to s_yrlikp-yyrtzonis.
+    move addobdlv_h-tzonrc   to s_yrlikp-yyrtzonrc.
+    move addobdlv_h-kodat    to s_yrlikp-yyrkodat.
+    move addobdlv_h-kouhr    to s_yrlikp-yyrkouhr.
+    move addobdlv_h-lddat    to s_yrlikp-yyrlddat.
+    move addobdlv_h-lduhr    to s_yrlikp-yyrlduhr.
+    move addobdlv_h-wadat    to s_yrlikp-yyrwadat.
+* das Ist-WA-Datum auch an den beleg übergeben...
+    read table xlikp into wa_xlikp with key vbeln = likp-vbeln.
+    if sy-subrc is initial.
+      move addobdlv_h-wadat    to wa_xlikp-wadat_ist.
+*      move addobdlv_h-wadat    to likp-wadat_ist.
+      modify xlikp from wa_xlikp index sy-tabix.
+    endif.
+
+    move addobdlv_h-wauhr    to s_yrlikp-yyrwauhr.
+    move addobdlv_h-lfdat    to s_yrlikp-yyrlfdat.
+    move addobdlv_h-lfuhr    to s_yrlikp-yyrlfuhr.
+
+* BKE20211110 Import aus ABAP-Memory nicht gefunden UND die aktuell prozessierte Lieferung
+*             wird über die neue Lieferfreigabe behandelt !
+*             => substituierende Versorgung der Struktur S_YRLIKP mit den Daten der LIKP an dieser Stelle !
+*             - Start -
+  else.
+*   die auf den neuen Lieferfreigabe-Prozess aufgeschalteten VSTEL ermitteln
+    ycl_r_lf_process=>get_new_active_vstel(
+      IMPORTING
+        pet_i_vstel_range = data(lr_vstel_new_process) ).
+    if not ( lr_vstel_new_process is initial ).
+
+      read table xlikp into wa_xlikp with key vbeln = likp-vbeln.
+      if ( sy-subrc EQ 0 ).
+*       VSTEL der aktuell behandelten Lieferung ist 'aufgeschaltet'
+        if ( wa_xlikp-vstel in lr_vstel_new_process ).
+
+*         BKE20220408 hinreichende Prüfung durchführen => WA_XLIKP-VLDGR+3(3) muss ausgeprägt sein !
+          if not ( wa_xlikp-vldgr+3(3) is initial ).  "BKE20220408
+            move wa_xlikp-vbeln          to s_yrlikp-yyrvbeln.
+            move wa_xlikp-kodat          to s_yrlikp-yyrkowdat.
+            move wa_xlikp-kodat          to s_yrlikp-yyrkodat.
+            move wa_xlikp-wadat          to s_yrlikp-yyrlddat.
+            move wa_xlikp-wadat          to s_yrlikp-yyrwadat.
+            move wa_xlikp-lfdat          to s_yrlikp-yyrlfdat.
+          endif.                                      "BKE20220408
+        endif.
+      endif.
+    endif.
+* BKE20211110 - Ende -
+  endif.
+
+* BKE20100727 auskommentiert - Start -
+** die zurückgemeldeten Kommilagerorte aus dem Memory holen
+*  import XADDOBDLV_p to XADDOBDLV_p from memory id 'XADDOBDLV_P'.
+*  if sy-subrc is initial.
+*    loop at xlips.
+*      move sy-tabix to tabix.
+**--- XLIPS entsprechend verändern -------------------------------------*
+*      if xlips-updkz ne 'D'.
+*        read table XADDOBDLV_p with key posnr = xlips-posnr.
+*        if sy-subrc is initial and not XADDOBDLV_p-lgort is initial.
+*          move-corresponding xlips to ylips.
+*          move XADDOBDLV_p-lgort to xlips-lgort.
+*          if xlips-updkz is initial.
+*            xlips-updkz = 'U'.
+*          endif.
+*          modify xlips index tabix.
+**--- ggf. auch den YLIPS-Satz hinzufügen, weil wir ja so tun, als hätten
+**--- wir eine Änderung, falls es nicht wirklich eine ist (aus Sicht der
+**--- Lieferung im Standard)
+*          read table ylips with key posnr = xlips-posnr.
+*          if not sy-subrc is initial.
+*            append ylips.
+*          endif.
+*        endif.
+*      endif.
+*    endloop.
+*  endif.
+*  free memory id 'XADDOBDLV_P'.
+* BKE20100727 auskommentiert - Ende  -
+endif.
+*}   INSERT
+
+ENDFORM.
+*eject
+
+
+*---------------------------------------------------------------------*
+*       FORM USEREXIT_REFRESH_DOCUMENT                                *
+*---------------------------------------------------------------------*
+*       It is always necessary to refresh user-specific data before   *
+*       the next document will be processed.                          *
+*       This can be done in this userexit.                            *
+*       This userexit can be used to refresh user-specific data       *
+*       when the processing of a delivery is finished                 *
+*       - after the document is saved                                 *
+*       - when you leave the document processing with F3 or F15       *
+*       It may be necessary to refresh user-specific data before      *
+*       the next document will be processed.                          *
+*                                                                     *
+*      This form is called in dialog at the end of form               *
+*      BELEG_INITIALISIEREN                                           *
+*                                                                     *
+*---------------------------------------------------------------------*
+FORM USEREXIT_REFRESH_DOCUMENT.
+
+* clear: ZZ50A.
+* refresh: zzitemtab.
+*{   INSERT         DE1K907716                                        1
+*free memory id 'XADDOBDLV_P'.
+*free memory id 'YYRTERMERR'.
+*}   INSERT
+
+ENDFORM.
+*eject
+************************************************************************
+*&                                                                    &*
+*&      Form  USER_EXIT_EARLY_UNLOCK_MM                               &*
+*&                                                                    &*
+************************************************************************
+*       User-Exit to activate the functionality of note 1776807        *
+*                                                                      *
+*      <  CP_EARLY_UNL  ... Activation flag                          *
+*                                                                      *
+*  =>   This user exit should be used only to switch on the early MM   *
+*       unlock for parallel GI processing.                             *
+*  !!!  Please avoid to change any other variable, internal table, or  *
+*  !!!  header lines of internal tables and especially do not give     *
+*  !!!  messages here.                                                 *
+************************************************************************
+FORM USER_EXIT_EARLY_UNLOCK_MM CHANGING CP_EARLY_UNL TYPE XFELD.
+
+*  IF XLIKP-VBTYP = CHARJ AND TVLK-AUFER = CHARX.
+    CP_EARLY_UNL = 'X'.
+*  ENDIF.
+
+ENDFORM.                    " USER_EXIT_EARLY_UNLOCK_MM
