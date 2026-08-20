@@ -11,9 +11,11 @@
 ************************************************************************
 *{   INSERT         DE1K918969                                        2
 * Datenbereiche für alle User-Exits
-data: begin of common part yr_head_data,
-      s_yrlikp like yrlikp,
-      end of common part yr_head_data.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*data: begin of common part yr_head_data,
+*      s_yrlikp like yrlikp,
+*      end of common part yr_head_data.
+* VB20260820 - Ende
 *}   INSERT
 
 *---------------------------------------------------------------------*
@@ -188,13 +190,15 @@ endif.
 * ÄNDERUNG: 18.01.2005 P. Wißler                  "PW20050118
 * Auch bei Löschung sollen Datümer in YRLIKP eingearbeitet werden!
 * if not V50AGL-kommirueckmeldung is initial and ylikp_updkz ne 'D'.
-if not V50AGL-kommirueckmeldung is initial.              "PW20050118
-  if not s_yrlikp is initial.
-    CALL FUNCTION 'Y_R_YRLIKP_UPDATE' in update task
-         EXPORTING
-              i_yrlikp = s_yrlikp.
-  endif.
-endif.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*if not V50AGL-kommirueckmeldung is initial.              "PW20050118
+*  if not s_yrlikp is initial.
+*    CALL FUNCTION 'Y_R_YRLIKP_UPDATE' in update task
+*         EXPORTING
+*              i_yrlikp = s_yrlikp.
+*  endif.
+*endif.
+* VB20260820 - Ende
 free memory id 'ADDOBDLV_H'.
 free memory id 'YYRTERMERR'.
 *}   INSERT
@@ -859,10 +863,14 @@ endif.
 * Auch bei Löschung sollen Datümer in YRLIKP eingearbeitet werden!
 *if V50AGL-kommirueckmeldung = 'X' and zzupdkz ne 'D'.
 if V50AGL-kommirueckmeldung = 'X'.                        "PW20050118
-  clear s_yrlikp.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*  clear s_yrlikp.
+* VB20260820 - Ende
   import addobdlv_h to addobdlv_h from memory id 'ADDOBDLV_H'.
   if not addobdlv_h is initial.
-    move likp-vbeln          to s_yrlikp-yyrvbeln.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*    move likp-vbeln          to s_yrlikp-yyrvbeln.
+* VB20260820 - Ende
 * Zeitzonen-Konvertierung abgebender Standort
     if not addobdlv_h-tzonis is initial and
        not likp-tzonis       is initial and
@@ -889,14 +897,16 @@ if V50AGL-kommirueckmeldung = 'X'.                        "PW20050118
       CONVERT TIME STAMP tstp TIME ZONE likp-tzonrc
               INTO DATE addobdlv_h-lfdat TIME addobdlv_h-lfuhr.
     endif.
-    move addobdlv_h-kowdat   to s_yrlikp-yyrkowdat.
-    move addobdlv_h-tzonis   to s_yrlikp-yyrtzonis.
-    move addobdlv_h-tzonrc   to s_yrlikp-yyrtzonrc.
-    move addobdlv_h-kodat    to s_yrlikp-yyrkodat.
-    move addobdlv_h-kouhr    to s_yrlikp-yyrkouhr.
-    move addobdlv_h-lddat    to s_yrlikp-yyrlddat.
-    move addobdlv_h-lduhr    to s_yrlikp-yyrlduhr.
-    move addobdlv_h-wadat    to s_yrlikp-yyrwadat.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*    move addobdlv_h-kowdat   to s_yrlikp-yyrkowdat.
+*    move addobdlv_h-tzonis   to s_yrlikp-yyrtzonis.
+*    move addobdlv_h-tzonrc   to s_yrlikp-yyrtzonrc.
+*    move addobdlv_h-kodat    to s_yrlikp-yyrkodat.
+*    move addobdlv_h-kouhr    to s_yrlikp-yyrkouhr.
+*    move addobdlv_h-lddat    to s_yrlikp-yyrlddat.
+*    move addobdlv_h-lduhr    to s_yrlikp-yyrlduhr.
+*    move addobdlv_h-wadat    to s_yrlikp-yyrwadat.
+* VB20260820 - Ende
 * das Ist-WA-Datum auch an den beleg übergeben...
     read table xlikp into wa_xlikp with key vbeln = likp-vbeln.
     if sy-subrc is initial.
@@ -905,9 +915,11 @@ if V50AGL-kommirueckmeldung = 'X'.                        "PW20050118
       modify xlikp from wa_xlikp index sy-tabix.
     endif.
 
-    move addobdlv_h-wauhr    to s_yrlikp-yyrwauhr.
-    move addobdlv_h-lfdat    to s_yrlikp-yyrlfdat.
-    move addobdlv_h-lfuhr    to s_yrlikp-yyrlfuhr.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*    move addobdlv_h-wauhr    to s_yrlikp-yyrwauhr.
+*    move addobdlv_h-lfdat    to s_yrlikp-yyrlfdat.
+*    move addobdlv_h-lfuhr    to s_yrlikp-yyrlfuhr.
+* VB20260820 - Ende
 
 * BKE20211110 Import aus ABAP-Memory nicht gefunden UND die aktuell prozessierte Lieferung
 *             wird über die neue Lieferfreigabe behandelt !
@@ -927,12 +939,14 @@ if V50AGL-kommirueckmeldung = 'X'.                        "PW20050118
 
 *         BKE20220408 hinreichende Prüfung durchführen => WA_XLIKP-VLDGR+3(3) muss ausgeprägt sein !
           if not ( wa_xlikp-vldgr+3(3) is initial ).  "BKE20220408
-            move wa_xlikp-vbeln          to s_yrlikp-yyrvbeln.
-            move wa_xlikp-kodat          to s_yrlikp-yyrkowdat.
-            move wa_xlikp-kodat          to s_yrlikp-yyrkodat.
-            move wa_xlikp-wadat          to s_yrlikp-yyrlddat.
-            move wa_xlikp-wadat          to s_yrlikp-yyrwadat.
-            move wa_xlikp-lfdat          to s_yrlikp-yyrlfdat.
+* VB20260820 - Start: Tabelle YRLIKP wird abgebaut, Coding auskommentiert
+*            move wa_xlikp-vbeln          to s_yrlikp-yyrvbeln.
+*            move wa_xlikp-kodat          to s_yrlikp-yyrkowdat.
+*            move wa_xlikp-kodat          to s_yrlikp-yyrkodat.
+*            move wa_xlikp-wadat          to s_yrlikp-yyrlddat.
+*            move wa_xlikp-wadat          to s_yrlikp-yyrwadat.
+*            move wa_xlikp-lfdat          to s_yrlikp-yyrlfdat.
+* VB20260820 - Ende
           endif.                                      "BKE20220408
         endif.
       endif.
