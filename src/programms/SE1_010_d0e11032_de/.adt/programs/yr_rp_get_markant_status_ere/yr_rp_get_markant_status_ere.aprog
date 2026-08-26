@@ -675,11 +675,24 @@ CLASS lcl_get_markant_status IMPLEMENTATION.
 
     lt_kunnr             = VALUE #( FOR status_db IN lt_status_db ( status_db-kunnr ) ).
     DATA(lt_ustid)       = get_ustid_kunnr( lt_kunnr ).
+    " >>> INS S4RFICO-3410
+    " CCS-Beleg: offizielle Rechnungsnummer ggf. ueber ZUORD/REF (XREF3) in BSAD ermitteln
+    DATA(lt_bsad_idx)    = fetch_customer_index_data( lt_status_db ).
+    " <<< INS S4RFICO-3410
     LOOP AT lt_status_db ASSIGNING FIELD-SYMBOL(<ls_status_db>).
       APPEND INITIAL LINE TO pct_status ASSIGNING FIELD-SYMBOL(<ls_status>).
       IF <ls_status> IS ASSIGNED.
         <ls_status>-rechnr                 = <ls_status_db>-belnr.
-        <ls_status>-invoiceid              = <ls_status_db>-xblnr.
+        " >>> INS S4RFICO-3410
+        TRY.
+            <ls_status>-invoiceid = lt_bsad_idx[ bukrs = <ls_status_db>-bukrs
+                                                  kunnr = <ls_status_db>-kunnr
+                                                  gjahr = <ls_status_db>-gjahr
+                                                  augbl = <ls_status_db>-belnr ]-xblnr.
+          CATCH cx_sy_itab_line_not_found.
+            <ls_status>-invoiceid = <ls_status_db>-xblnr.
+        ENDTRY.
+        " <<< INS S4RFICO-3410
         <ls_status>-zuordguid              = <ls_status_db>-zuonr.
         <ls_status>-rechdate               = <ls_status_db>-bldat.
         <ls_status>-lifnr                  = <ls_status_db>-kunnr.
@@ -804,9 +817,20 @@ CLASS lcl_get_markant_status IMPLEMENTATION.
     IF sy-subrc <> 0.
       CLEAR rt_result.
     ENDIF.
-    " CCS
-    APPEND LINES OF
-      fetch_ccs_document( it_status_db  ) TO rt_result.
+    " >>> INS S4RFICO-3410
+    " CCS: fuer CCS-Belege (Zusatzbeleg 816*/18* in ZUORD oder REF) liefert
+    " fetch_ccs_document die tatsaechliche offizielle Rechnungsnummer - diese
+    " ersetzt den Basiswert je Schluessel (bukrs/kunnr/gjahr/augbl), damit der
+    " Lookup ueber diesen Schluessel eindeutig bleibt.
+    DATA(lt_ccs) = fetch_ccs_document( it_status_db ).
+    LOOP AT lt_ccs ASSIGNING FIELD-SYMBOL(<ls_ccs>).
+      DELETE rt_result WHERE bukrs = <ls_ccs>-bukrs
+                         AND kunnr = <ls_ccs>-kunnr
+                         AND gjahr = <ls_ccs>-gjahr
+                         AND augbl = <ls_ccs>-augbl.
+    ENDLOOP.
+    APPEND LINES OF lt_ccs TO rt_result.
+    " <<< INS S4RFICO-3410
   ENDMETHOD.
 
   METHOD fetch_ccs_document.
