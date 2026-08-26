@@ -1,0 +1,944 @@
+REPORT yr_rp_get_markant_status_ere .                      "#EC CI_AUTH
+*-------------------------------------------------------------------
+* dm/fd-Programm-Header
+*-------------------------------------------------------------------
+* Aufgabe:    SRFICO-11623 PROJ-000041 E-Rechnung dmHR: Reporting für
+*             abgelehnte Rechnungen und erhaltene Zahlungen
+*-------------------------------------------------------------------
+* Datum       Kürzel       Name                   Kommentar-Code
+*-------------------------------------------------------------------
+* 2025-11-27  D0E11032     Viktor Belan           Erstellung
+* 2026-06-01  D0E11032     Viktor Belan           Anpassungen und Korrekturen laut Jira S4RFICO-3410
+* 2026-08-26  D0E11032     Viktor Belan           CCS-Beleg: Zusatzbeleg-Suche in BSAD ueber ZUORD
+*                                                 oder REF (XREF3); unterschiedliche Logik fuer
+*                                                 Zusatzbeleg 816* vs. 18* laut Jira S4RFICO-3410
+*-------------------------------------------------------------------
+
+DATA: gv_bukrs TYPE bukrs,
+
+      gv_kunnr TYPE kunnr,
+      gv_datum TYPE sy-datum,
+
+      gv_belnr TYPE bkpf-belnr,
+      gv_gjahr TYPE bkpf-gjahr.
+
+SELECTION-SCREEN BEGIN OF BLOCK b01 WITH FRAME TITLE TEXT-000.
+
+  SELECT-OPTIONS: s_bukrs FOR gv_bukrs OBLIGATORY,
+                  s_datum FOR gv_datum OBLIGATORY.
+
+
+  SELECTION-SCREEN BEGIN OF BLOCK b02 WITH FRAME TITLE TEXT-005.
+
+    PARAMETERS: p_buch TYPE xfeld, "P_BUCH  Rechnungseingangsbuch
+                p_proc TYPE xfeld, "P_PROC  Process-Director
+                p_debi TYPE xfeld. "P_DEBI  Aus Debitoren Tabelle
+
+
+
+  SELECTION-SCREEN END OF BLOCK b02.
+  SELECTION-SCREEN BEGIN OF BLOCK b03 WITH FRAME TITLE TEXT-006.
+    PARAMETERS: p_again TYPE xfeld.
+
+  SELECTION-SCREEN END OF BLOCK b03.
+
+  SELECTION-SCREEN BEGIN OF BLOCK b06 WITH FRAME TITLE TEXT-012.
+    SELECTION-SCREEN BEGIN OF BLOCK b07 WITH FRAME TITLE TEXT-016.
+      SELECT-OPTIONS: so_belnr FOR gv_belnr .
+    SELECTION-SCREEN END OF BLOCK b07.
+    SELECTION-SCREEN BEGIN OF BLOCK b04 WITH FRAME TITLE TEXT-010.
+
+      SELECT-OPTIONS: s_kunnr FOR gv_kunnr NO INTERVALS.
+    SELECTION-SCREEN END OF BLOCK b04.
+    SELECTION-SCREEN BEGIN OF BLOCK b05 WITH FRAME TITLE TEXT-011.
+      SELECT-OPTIONS: s_belnr FOR gv_belnr NO INTERVALS.
+      SELECT-OPTIONS: s_gjahr FOR gv_gjahr  NO INTERVALS.
+    SELECTION-SCREEN END OF BLOCK b05.
+  SELECTION-SCREEN END OF BLOCK b06.
+
+SELECTION-SCREEN END OF BLOCK b01.
+
+
+CLASS lcl_get_markant_status DEFINITION.
+
+  PUBLIC SECTION.
+    TYPES: BEGIN OF ty_gln_data,
+             bukrs TYPE bukrs,
+             gln   TYPE eane_iln,
+           END OF ty_gln_data,
+           tty_gln_data TYPE STANDARD TABLE OF ty_gln_data WITH KEY bukrs.
+    METHODS process.
+    METHODS constructor.
+  PRIVATE SECTION.
+    CONSTANTS:
+      BEGIN OF ac_parameter_name ,
+        process_debitor_blart18   TYPE yca_bb_para_parameter VALUE 'P:PROC_DEBITOR_BLART18', " für 18 Belege
+        process_debitor_blart     TYPE yca_bb_para_parameter VALUE 'P:PROC_DEBITOR_BLART',
+        process_debitor_bstat     TYPE yca_bb_para_parameter VALUE 'P:PROC_DEBITOR_BSTAT',
+        process_rechneingang_stat TYPE yca_bb_para_parameter VALUE 'P:PROC_RECHNEIN_STAT',
+        process_procdirector_stat TYPE yca_bb_para_parameter VALUE 'P:PROC_PROCDIRECT_STAT',
+      END OF ac_parameter_name .
+    TYPES: BEGIN OF ts_debitor_status,
+             bukrs TYPE bukrs,
+             xblnr TYPE xblnr,
+             belnr TYPE belnr_d,
+             gjahr TYPE gjahr,
+             blart TYPE blart,
+             bldat TYPE bldat,
+             cpudt TYPE cpudt,
+             bstat TYPE bstat,
+             zuonr TYPE dzuonr,
+             kunnr TYPE kunnr,
+             zlsch TYPE dzlsch,
+             dmbtr TYPE dmbtr,
+             wmwst TYPE wmwst,
+             waers TYPE waers,
+           END OF ts_debitor_status .
+    TYPES: BEGIN OF ts_bsad,
+             bukrs TYPE bukrs,
+             kunnr TYPE kunnr,
+             augdt TYPE augdt,
+             augbl TYPE augbl,
+             gjahr TYPE gjahr,
+             belnr TYPE belnr_d,
+             buzei TYPE buzei,
+             xblnr TYPE xblnr,
+           END OF ts_bsad.
+    " >>> INS S4RFICO-3410
+    TYPES: BEGIN OF ts_bsad_ccs,
+             bukrs TYPE bukrs,
+             kunnr TYPE kunnr,
+             augdt TYPE augdt,
+             augbl TYPE augbl,
+             gjahr TYPE gjahr,
+             belnr TYPE belnr_d,
+             buzei TYPE buzei,
+             xblnr TYPE xblnr,
+             zuonr TYPE dzuonr,
+             xref3 TYPE xref3,
+           END OF ts_bsad_ccs.
+    " <<< INS S4RFICO-3410
+
+    TYPES: BEGIN OF ts_prot,
+             msgtx TYPE msgtx,
+             icon  TYPE icon_d.
+             INCLUDE TYPE yrrp_mark_st_ere.
+    TYPES : END OF ts_prot.
+    TYPES: BEGIN OF ts_steuer,
+             lifnr TYPE lifnr,
+             stceg TYPE lfa1-stceg,
+             stcd2 TYPE lfa1-stcd2,
+           END OF ts_steuer.
+    TYPES: BEGIN OF ts_steuer_kunnr,
+             kunnr TYPE kunnr,
+             stceg TYPE kna1-stceg,
+             stcd2 TYPE kna1-stcd2,
+           END OF ts_steuer_kunnr.
+    TYPES: BEGIN OF ts_bukrs_stceg,
+             bukrs TYPE bukrs,
+             stceg TYPE t001n-stceg,
+             stcd1 TYPE t001n-stcd1,
+           END OF ts_bukrs_stceg,
+           BEGIN OF ts_steuersatz_buch,
+             ivid	 TYPE yr_rp_iv_guid,
+             taxpc TYPE  yermwsts1k,
+           END OF ts_steuersatz_buch.
+    CONSTANTS: BEGIN OF ac_reporting_art,
+                 ablehnung TYPE yrrp_rep_art VALUE '01',
+                 zahlung   TYPE yrrp_rep_art VALUE '02',
+               END OF ac_reporting_art.
+    CONSTANTS: BEGIN OF ac_data_art,
+                 rechnungseingangsbuch TYPE yrrp_data_art VALUE '01',
+                 process_director      TYPE yrrp_data_art VALUE '02',
+                 debitoren_tabelle     TYPE yrrp_data_art VALUE '03',
+               END OF ac_data_art.
+    DATA:
+          at_tmstmp_15_rng   TYPE RANGE OF tms_timestamp_update
+          .
+    DATA  at_parameter TYPE yca_bb_parastt .
+    DATA at_gln TYPE tty_gln_data. " <<< INS S4RFICO-3410
+
+    TYPES: tt_status   TYPE STANDARD TABLE OF yrrp_mark_st_ere WITH NON-UNIQUE EMPTY KEY.
+    TYPES: tt_prot     TYPE STANDARD TABLE OF ts_prot WITH NON-UNIQUE EMPTY KEY.
+    TYPES: ty_t_bukrs_stceg  TYPE STANDARD TABLE OF ts_bukrs_stceg WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_stceg  TYPE STANDARD TABLE OF ts_steuer WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_stceg_kunnr  TYPE STANDARD TABLE OF ts_steuer_kunnr WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_steuersatz_buch  TYPE STANDARD TABLE OF ts_steuersatz_buch  WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_guid    TYPE STANDARD TABLE OF yr_rp_iv_guid  WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_bsad    TYPE STANDARD TABLE OF ts_bsad  WITH NON-UNIQUE EMPTY KEY .
+    TYPES: ty_t_bsad_ccs TYPE STANDARD TABLE OF ts_bsad_ccs WITH NON-UNIQUE EMPTY KEY . " >>> INS S4RFICO-3410
+    TYPES: ty_t_debitor_status  TYPE STANDARD TABLE OF ts_debitor_status WITH NON-UNIQUE EMPTY KEY.
+
+    METHODS fetch_parameter   CHANGING  pct_prot   TYPE tt_prot.
+
+    METHODS select_rechnungseingangsbuch CHANGING pct_status TYPE tt_status
+                                                  pct_prot   TYPE tt_prot.
+
+    METHODS select_process_director CHANGING pct_status TYPE tt_status
+                                             pct_prot   TYPE tt_prot.
+
+    METHODS insert_markant_status IMPORTING pit_status TYPE tt_status
+                                  CHANGING  pct_prot   TYPE tt_prot.
+
+    METHODS select_process_debitor CHANGING pct_status TYPE tt_status
+                                            pct_prot   TYPE tt_prot.
+    METHODS  protocoll CHANGING  pct_prot   TYPE tt_prot.
+    METHODS  get_ustid_rechnungsstellern IMPORTING  it_lifnr TYPE cvis_vendor_t    RETURNING VALUE(rt_result) TYPE ty_t_stceg.
+    METHODS  get_ustid_kunnr             IMPORTING  it_kunnr TYPE cvis_customer_t  RETURNING VALUE(rt_result) TYPE ty_t_stceg_kunnr.
+    METHODS  get_buchungskreis IMPORTING it_bukrs TYPE fte_t_bukrs RETURNING VALUE(rt_result) TYPE ty_t_bukrs_stceg.
+    METHODS  get_steuersatz_buch IMPORTING it_guid TYPE ty_t_guid RETURNING VALUE(rt_result) TYPE ty_t_steuersatz_buch      .
+    METHODS  get_parameter     IMPORTING iv_parameter TYPE yca_bb_para_parameter      iv_zusatz TYPE yca_bb_para_zusatz
+                               EXPORTING ev_value1    TYPE yca_bb_para_value_string   ev_value2 TYPE yca_bb_para_value_string .
+    METHODS fetch_customer_index_data IMPORTING it_status_db TYPE ty_t_debitor_status  RETURNING VALUE(rt_result) TYPE ty_t_bsad.
+    METHODS fetch_ccs_document  IMPORTING it_status_db TYPE ty_t_debitor_status  RETURNING VALUE(rt_result) TYPE ty_t_bsad.
+
+ENDCLASS.
+
+
+CLASS lcl_get_markant_status IMPLEMENTATION.
+
+  METHOD select_process_director.
+    " Selektiere alle abgelehnten Rechnungen Kostenrechnungen
+
+    DATA lt_lifnr      TYPE  cvis_vendor_t.
+    DATA lt_status_rng TYPE RANGE OF /cockpit/tstat-status.
+    DATA lt_reject_reason TYPE RANGE OF /cockpit/thdr-rej_reason_id.
+
+    lt_status_rng = VALUE #( ( sign = 'I' option = 'EQ' low = '13')  ).
+    lt_reject_reason = VALUE #( ( sign = 'I' option = 'EQ' low = 'N')
+                                ( sign = 'I' option = 'EQ' low = 'O')
+                                ( sign = 'I' option = 'EQ' low = 'U') ).
+
+
+    SELECT                                              "#EC CI_NOFIELD
+           h~zz_purchase_inv_id,                          "#EC CI_SUBRC
+           h~invoice_guid ,
+*           h~ref_doc_no,                                  <<< DEL S4RFICO-3410
+           h~paymt_ref,                                    ">>> INS S4RFICO-3410
+           h~doc_date,
+           h~diff_inv,
+           h~vendor_no,
+           h~zz_ustid_eigen	,
+           h~comp_code,
+           h~rej_reason_id,
+           h~ch_timestamp
+      INTO TABLE @DATA(lt_status_db)
+      FROM /cockpit/thdr AS h
+      WHERE ( h~ch_timestamp  IN @at_tmstmp_15_rng
+      AND     h~comp_code     IN @s_bukrs
+      AND     h~status        IN @lt_status_rng
+      AND     h~rej_reason_id IN @lt_reject_reason
+      AND     h~origin       =  '1' ).
+    IF lt_status_db[] IS INITIAL.
+      APPEND VALUE #( icon = icon_warning msgtx = TEXT-002 ) TO pct_prot.
+      RETURN.
+    ENDIF.
+    " Buchungskreis Daten
+    IF lt_status_db IS NOT INITIAL.
+      DATA(lt_bukrs)        = VALUE fte_t_bukrs( FOR ls_status IN lt_status_db ( ls_status-comp_code ) ).
+      DELETE ADJACENT DUPLICATES FROM lt_bukrs COMPARING table_line.
+      DATA(lt_steuer_stecg) = get_buchungskreis( lt_bukrs ) .
+    ENDIF.
+
+    " ermitteln GLN
+    lt_lifnr             = VALUE #( FOR status_db IN lt_status_db ( status_db-vendor_no ) ).
+    DELETE ADJACENT DUPLICATES FROM lt_lifnr.
+
+    DATA(lt_ustid)       = get_ustid_rechnungsstellern( lt_lifnr ).
+
+    LOOP AT lt_status_db ASSIGNING FIELD-SYMBOL(<ls_status_db>).
+      APPEND INITIAL LINE TO pct_status ASSIGNING FIELD-SYMBOL(<ls_status>).
+      IF <ls_status> IS ASSIGNED.
+        <ls_status>-invoiceid     = <ls_status_db>-zz_purchase_inv_id.
+        <ls_status>-zuordguid     = <ls_status_db>-invoice_guid.
+*        <ls_status>-rechnr        = <ls_status_db>-ref_doc_no.  <<< DEL S4RFICO-3410
+        <ls_status>-rechnr        = <ls_status_db>-paymt_ref.   ">>> INS S4RFICO-3410
+        <ls_status>-rechdate      = <ls_status_db>-doc_date.
+        <ls_status>-lifnr         = <ls_status_db>-vendor_no.
+        TRY.
+            DATA(ls_umstr)                      = lt_ustid[ lifnr = <ls_status>-lifnr ] .
+*            <ls_status>-oib_rechnsteller        = ls_umstr-stceg. <<< DEL S4RFICO-3410
+*            <ls_status>-ustid_rechnsteller      = ls_umstr-stcd2. <<< DEL S4RFICO-3410
+            <ls_status>-oib_rechnsteller        = ls_umstr-stcd2.  ">>> INS S4RFICO-3410
+            <ls_status>-ustid_rechnsteller      = ls_umstr-stceg.  ">>> INS S4RFICO-3410
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-oib_rechnsteller       .
+        ENDTRY.
+*        <ls_status>-oib_rechnempaenger      = <ls_status_db>-zz_ustid_eigen. <<< DEL S4RFICO-3410
+        TRY.
+            <ls_status>-ustid_rechnempaenger    = lt_steuer_stecg[ bukrs = <ls_status_db>-comp_code ]-stceg.
+            <ls_status>-oib_rechnempaenger      = lt_steuer_stecg[ bukrs = <ls_status_db>-comp_code ]-stcd1. ">>> INS S4RFICO-3410
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-ustid_rechnempaenger .
+        ENDTRY.
+        <ls_status>-bukrs                = <ls_status_db>-comp_code.
+        <ls_status>-rep_art              = ac_reporting_art-ablehnung.
+        <ls_status>-bukrs                = <ls_status_db>-comp_code.
+        <ls_status>-rueckm_status        = <ls_status_db>-rej_reason_id.
+        " Text in der Parameter Tabelle
+        get_parameter( EXPORTING iv_parameter = ac_parameter_name-process_procdirector_stat
+                                 iv_zusatz    = CONV #( <ls_status>-rueckm_status )
+                       IMPORTING ev_value1    = DATA(lv_paramter_value)   ).
+
+        <ls_status>-rueckm_status_txt         = lv_paramter_value.
+
+        CONVERT TIME STAMP <ls_status_db>-ch_timestamp TIME ZONE 'UTC' INTO DATE <ls_status>-last_update .
+        <ls_status>-data_art               = ac_data_art-process_director .
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD select_rechnungseingangsbuch.
+    "Warenrechnungen
+    DATA lt_guid TYPE ty_t_guid.
+    DATA lv_time TYPE sy-uzeit.
+    DATA lt_stat_rng TYPE RANGE OF yrrp_iv_in_head-status.
+
+    lt_stat_rng = VALUE #( FOR parameter IN at_parameter WHERE ( param  = ac_parameter_name-process_rechneingang_stat )
+                                                               ( sign   = 'I'
+                                                                 option = 'EQ'
+                                                                 low    = parameter-zusatz )  ).
+
+    SELECT h~official_iv_id,
+           h~ivid,
+*           h~rechnr,                                      <<< DEL S4RFICO-3410
+           h~ref_doc_no_long,                              ">>> INS S4RFICO-3410
+           h~rechdate,
+           h~lifre,
+           h~lifre_iln  ,
+           h~uinr,
+           h~stcd1_lifre,
+           h~uinr_eigen  ,
+           h~stcd1_eigen,
+           h~bukrs,
+           h~status,
+           b~chg_tstmp
+      INTO TABLE @DATA(lt_status_db)
+      FROM yrrp_iv_in_head AS h
+      INNER JOIN yrrp_iv_book AS b
+      ON b~id EQ h~ivid WHERE
+            h~status    IN @lt_stat_rng
+      AND   b~bukrs     IN @s_bukrs
+      AND   b~chg_tstmp IN @at_tmstmp_15_rng
+      .
+    IF sy-subrc NE 0.
+      APPEND VALUE #( icon = icon_warning msgtx = TEXT-001 ) TO pct_prot.
+      RETURN.
+    ENDIF.
+    lt_guid = VALUE #( FOR ls_status IN lt_status_db ( ls_status-ivid ) ).
+    DATA(lt_steuersatz) =   get_steuersatz_buch( lt_guid ).
+    LOOP AT lt_status_db ASSIGNING FIELD-SYMBOL(<ls_status_db>).
+      APPEND INITIAL LINE TO pct_status ASSIGNING FIELD-SYMBOL(<ls_status>).
+      IF <ls_status> IS ASSIGNED.
+        <ls_status>-invoiceid              = <ls_status_db>-official_iv_id.
+        <ls_status>-zuordguid              = <ls_status_db>-ivid.
+*        <ls_status>-rechnr                 = <ls_status_db>-rechnr.         <<< DEL S4RFICO-3410
+        <ls_status>-rechnr                 = <ls_status_db>-ref_doc_no_long.">>> INS S4RFICO-3410
+        <ls_status>-rechdate               = <ls_status_db>-rechdate.
+        <ls_status>-lifnr                  = <ls_status_db>-lifre.
+*        <ls_status>-oib_rechnsteller       = <ls_status_db>-uinr.          <<< DEL S4RFICO-3410
+*        <ls_status>-ustid_rechnempaenger   = <ls_status_db>-stcd1_lifre.   <<< DEL S4RFICO-3410
+        <ls_status>-oib_rechnsteller       = <ls_status_db>-stcd1_lifre.    ">>> INS S4RFICO-3410
+        <ls_status>-ustid_rechnsteller     = <ls_status_db>-uinr.           ">>> INS S4RFICO-3410
+*        <ls_status>-oib_rechnempaenger     = <ls_status_db>-uinr_eigen .   <<< DEL S4RFICO-3410
+*        <ls_status>-ustid_rechnempaenger   = <ls_status_db>-stcd1_eigen .  <<< DEL S4RFICO-3410
+        <ls_status>-oib_rechnempaenger     = <ls_status_db>-stcd1_eigen  .  ">>> INS S4RFICO-3410
+        <ls_status>-ustid_rechnempaenger   = <ls_status_db>-uinr_eigen   .  ">>> INS S4RFICO-3410
+        TRY.
+            <ls_status>-steuersatz = lt_steuersatz[ ivid = <ls_status_db>-ivid ]-taxpc.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR  <ls_status>-steuersatz.
+        ENDTRY.
+        <ls_status>-bukrs                  = <ls_status_db>-bukrs.
+
+        get_parameter( EXPORTING iv_parameter = ac_parameter_name-process_rechneingang_stat
+                                 iv_zusatz    = CONV #( <ls_status_db>-status  )
+                       IMPORTING ev_value1    = DATA(lv_rueckm_status)
+                                 ev_value2    = DATA(lv_rueckm_status_txt)  ).
+        <ls_status>-rueckm_status     = lv_rueckm_status.
+        <ls_status>-rueckm_status_txt = lv_rueckm_status_txt.
+        CONVERT TIME STAMP <ls_status_db>-chg_tstmp TIME ZONE 'UTC' INTO DATE <ls_status>-last_update TIME lv_time.
+        <ls_status>-rep_art                = ac_reporting_art-ablehnung.
+        <ls_status>-data_art               = ac_data_art-rechnungseingangsbuch.
+      ENDIF.
+    ENDLOOP.
+    " Filtern
+    DELETE pct_status WHERE rep_art    = ac_reporting_art-ablehnung
+                       AND  data_art   = ac_data_art-rechnungseingangsbuch
+                       AND  steuersatz = 0.
+
+  ENDMETHOD.
+
+  METHOD insert_markant_status.
+    DATA ls_status TYPE yrrp_mark_st_ere. " >>> INS S4RFICO-3410
+    LOOP AT pit_status ASSIGNING FIELD-SYMBOL(<ls_staus>).
+      " >>> INS S4RFICO-3410
+      TRY.
+          CLEAR ls_status.
+          ls_status = <ls_staus>.
+          ls_status-gln_rechnungsempfaenger = at_gln[ bukrs = <ls_staus>-bukrs ]-gln.
+        CATCH cx_sy_itab_line_not_found.
+          CLEAR  ls_status-gln_rechnungsempfaenger  .
+      ENDTRY.
+      " <<< INS S4RFICO-3410
+*      INSERT yrrp_mark_st_ere FROM <ls_staus>.            "#EC CI_SUBRC
+      INSERT yrrp_mark_st_ere FROM ls_status.            " >>> INS S4RFICO-3410
+      IF sy-subrc = 0.
+        APPEND VALUE #( msgtx         = COND #( WHEN sy-subrc EQ 0 THEN TEXT-004 ELSE TEXT-003 )
+                        icon          = COND #( WHEN sy-subrc EQ 0 THEN icon_okay ELSE icon_cancel )
+                        invoiceid     = <ls_staus>-invoiceid
+                        rechnr        = <ls_staus>-rechnr
+                        rechdate      = <ls_staus>-rechdate
+                        lifnr         = <ls_staus>-lifnr
+                        bukrs         = <ls_staus>-bukrs
+                        rueckm_status = <ls_staus>-rueckm_status
+         ) TO pct_prot.
+      ELSEIF p_again IS NOT INITIAL.
+*        MODIFY yrrp_mark_st_ere FROM <ls_staus>.          "#EC CI_SUBRC
+        MODIFY yrrp_mark_st_ere FROM ls_status.             " >>> INS S4RFICO-3410
+        IF sy-subrc = 0.
+          APPEND VALUE #(  msgtx         = COND #( WHEN sy-subrc EQ 0 THEN TEXT-007 ELSE TEXT-008 )
+                           icon          = COND #( WHEN sy-subrc EQ 0 THEN icon_okay ELSE icon_cancel )
+                           invoiceid     = <ls_staus>-invoiceid
+                           rechnr        = <ls_staus>-rechnr
+                           rechdate      = <ls_staus>-rechdate
+                           lifnr         = <ls_staus>-lifnr
+                           bukrs         = <ls_staus>-bukrs
+                           rueckm_status = <ls_staus>-rueckm_status )  TO pct_prot.
+        ENDIF.
+      ELSE.
+        APPEND VALUE #( msgtx         = COND #( WHEN sy-subrc EQ 0 THEN TEXT-004 ELSE TEXT-003 )
+                        icon          = COND #( WHEN sy-subrc EQ 0 THEN icon_okay ELSE icon_cancel )
+                        invoiceid     = <ls_staus>-invoiceid
+                        rechnr        = <ls_staus>-rechnr
+                        rechdate      = <ls_staus>-rechdate
+                        lifnr         = <ls_staus>-lifnr
+                        bukrs         = <ls_staus>-bukrs
+                        rueckm_status = <ls_staus>-rueckm_status
+
+         ) TO pct_prot.
+      ENDIF.
+
+    ENDLOOP.
+
+
+  ENDMETHOD.
+
+  METHOD protocoll.
+
+    TRY.
+
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table   =  DATA(lr_salv)                         " Basisklasse einfache ALV Tabellen
+          CHANGING
+            t_table        = pct_prot
+        ).
+
+
+        lr_salv->get_columns( )->set_optimize( ).
+
+        lr_salv->display( ).
+
+      CATCH cx_salv_msg ##NO_HANDLER
+        .
+    ENDTRY.
+
+
+  ENDMETHOD.
+  METHOD constructor.
+    " >>> INS S4RFICO-3410
+    SELECT object_key AS bukrs,
+           gln
+      FROM eanc_gln_mapp
+    INTO TABLE @at_gln
+      WHERE object = 'BUKRS'
+      AND object_key IN @s_bukrs.
+    IF sy-subrc <> 0.
+      MESSAGE e000(yrrk_eknner) WITH 'GLN konnte nicht ermittelt werden'(015).
+    ENDIF.
+    " <<< S4RFICO-3410
+  ENDMETHOD.
+  METHOD process.
+    DATA:
+      lt_prot   TYPE tt_prot,
+      lt_status TYPE tt_status,
+      lv_uzeit  TYPE sy-uzeit VALUE '235959'.
+
+    fetch_parameter( CHANGING pct_prot = lt_prot ).
+
+    IF s_datum[] IS NOT INITIAL.
+      LOOP AT s_datum[] ASSIGNING FIELD-SYMBOL(<ls_datum>).
+        APPEND INITIAL LINE TO at_tmstmp_15_rng ASSIGNING FIELD-SYMBOL(<ls_tmpstmp_15>).
+        IF <ls_tmpstmp_15> IS ASSIGNED.
+          <ls_tmpstmp_15>-sign = <ls_datum>-sign.
+          <ls_tmpstmp_15>-option = <ls_datum>-option.
+          IF <ls_datum>-low IS NOT INITIAL.
+            CONVERT DATE <ls_datum>-low INTO TIME STAMP <ls_tmpstmp_15>-low TIME ZONE 'UTC'.
+          ENDIF.
+          IF <ls_datum>-high IS NOT INITIAL.
+            CONVERT DATE <ls_datum>-high TIME lv_uzeit INTO TIME STAMP <ls_tmpstmp_15>-high TIME ZONE 'UTC'.
+          ELSE.
+            CONVERT DATE <ls_datum>-low TIME lv_uzeit INTO TIME STAMP <ls_tmpstmp_15>-high TIME ZONE 'UTC'.
+            <ls_tmpstmp_15>-option = 'BT'.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+    ENDIF.
+
+    IF p_proc EQ abap_true.
+      select_process_director(
+        CHANGING
+          pct_status = lt_status
+          pct_prot   = lt_prot
+      ).
+    ENDIF.
+
+
+    IF p_buch EQ abap_true.
+      select_rechnungseingangsbuch(
+        CHANGING
+          pct_status = lt_status
+          pct_prot   = lt_prot
+      ).
+    ENDIF.
+    IF p_debi EQ abap_true.
+      select_process_debitor(
+        CHANGING
+          pct_status = lt_status
+          pct_prot   = lt_prot
+      ).
+    ENDIF.
+    insert_markant_status(
+      EXPORTING
+        pit_status = lt_status
+      CHANGING
+        pct_prot   = lt_prot
+    ).
+
+
+    protocoll(
+      CHANGING
+        pct_prot = lt_prot
+    ).
+
+
+  ENDMETHOD.
+
+  METHOD get_ustid_rechnungsstellern.
+*    OIB = die UstID ermitteln
+    DATA lifnr_rng TYPE RANGE OF lifnr.
+
+    CLEAR rt_result.
+
+    IF it_lifnr IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    lifnr_rng = VALUE #( FOR vendor IN it_lifnr (  sign = 'I' option = 'EQ' low = vendor ) ).
+
+    SELECT lifnr,
+           stceg,
+           stcd2
+      FROM lfa1
+      WHERE lifnr IN @lifnr_rng
+      INTO TABLE @rt_result.
+    IF sy-subrc <> 0.
+      CLEAR rt_result .
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD get_ustid_kunnr .
+*    OIB = die UstID ermitteln
+    DATA kunnr_rng TYPE trgr_kunnr.
+
+    CLEAR rt_result.
+
+    IF it_kunnr IS INITIAL.
+      RETURN.
+    ENDIF.
+    kunnr_rng = VALUE #( FOR customer IN it_kunnr (  sign = 'I' option = 'EQ' low = customer ) ).
+
+    SELECT kunnr,
+           stceg,
+           stcd2
+      FROM kna1
+      WHERE kunnr IN @kunnr_rng
+      INTO TABLE @rt_result.
+    IF sy-subrc <> 0.
+      CLEAR rt_result .
+    ENDIF.
+
+  ENDMETHOD.
+  METHOD select_process_debitor.
+
+    DATA lt_kunnr     TYPE cvis_customer_t  .
+    DATA lt_blart_rng TYPE bkk_r_blart.
+
+    IF s_belnr[] IS NOT INITIAL .
+      SELECT    h~bukrs,                                  "#EC CI_SUBRC
+                w~yyfiscnr AS xblnr, "h~xblnr,
+                h~belnr,
+                h~gjahr,
+                h~blart,
+                h~bldat,
+                h~cpudt,
+                i~zuonr ,
+                i~kunnr,
+                i~zlsch,
+                i~dmbtr,
+                i~wmwst,
+                h~waers
+               FROM bkpf AS h
+               INNER JOIN bseg AS i ON h~bukrs EQ i~bukrs "#EC CI_DB_OPERATION_OK[2431747]
+                                   AND h~belnr EQ i~belnr
+                                   AND h~gjahr EQ i~gjahr
+               LEFT OUTER JOIN wbrk AS w  ON h~awtyp = 'WBRK'
+                                         AND h~awkey =  lpad( w~wbeln, 10, '0' )
+               WHERE (       h~bukrs    IN @s_bukrs
+                         AND h~belnr    IN @s_belnr
+                         AND h~gjahr    IN @s_gjahr
+                         AND i~koart    =  'D'      )
+               INTO TABLE @DATA(lt_status_2025_db).
+      IF sy-subrc <> 0.
+        CLEAR lt_status_2025_db.
+      ENDIF.
+    ENDIF.
+    lt_blart_rng = VALUE #( FOR parameter IN at_parameter WHERE ( param = ac_parameter_name-process_debitor_blart18 )
+                                                                ( sign   = 'I'
+                                                                  option = 'EQ'
+                                                                  low    = parameter-value1 )  ).
+
+
+    SELECT    i~bukrs,                                    "#EC CI_SUBRC
+              i~xblnr,
+              i~belnr,
+              i~gjahr,
+              i~blart,
+              i~bldat,
+              i~cpudt,
+              i~zuonr ,
+              i~kunnr,
+              i~zlsch,
+              i~dmbtr,
+              i~wmwst,
+              h~waers
+         FROM bsad_view  AS i
+         INNER JOIN bkpf AS h ON h~bukrs EQ i~bukrs
+                             AND h~belnr EQ i~belnr
+                             AND h~gjahr EQ i~gjahr
+         WHERE         i~bukrs    IN @s_bukrs
+                   AND h~cpudt    IN @s_datum
+                   AND h~blart    IN @lt_blart_rng
+                   AND h~belnr    IN @so_belnr
+                   AND i~kunnr    NOT IN  @s_kunnr
+     INTO TABLE @DATA(lt_status_db) . " Ausländische Debitoren ausschließen
+    IF sy-subrc <> 0.
+      CLEAR lt_status_db.
+    ENDIF.
+    IF lt_status_2025_db[] IS NOT INITIAL.
+*      APPEND LINES OF lt_status_2025_db TO lt_status_db.
+      lt_status_db = VALUE #( BASE lt_status_db
+                        FOR <src> IN lt_status_2025_db
+                        ( VALUE #( BASE CORRESPONDING #( <src> )
+                                  xblnr = condense( <src>-xblnr ) ) ) ).
+    ENDIF.
+    IF lt_status_db[] IS INITIAL .
+      APPEND VALUE #( icon = icon_warning msgtx = TEXT-002 ) TO pct_prot.
+      RETURN.
+    ENDIF.
+
+    IF lt_status_db IS NOT INITIAL.
+      DATA(lt_bukrs)        = VALUE fte_t_bukrs( FOR ls_status IN lt_status_db ( ls_status-bukrs ) ).
+      DELETE ADJACENT DUPLICATES FROM lt_bukrs COMPARING table_line.
+      DATA(lt_steuer_stecg) = get_buchungskreis( lt_bukrs ) .
+      SELECT h~bukrs,
+             h~augbl,
+             h~gjahr,
+             h~belnr,
+             i~blart
+        FROM bsad_view AS h
+        LEFT OUTER JOIN bsad_view AS i ON i~bukrs = h~bukrs
+                                      AND i~augbl = h~augbl
+                                      AND i~gjahr = h~gjahr
+                                      AND i~shkzg = 'H'
+        FOR ALL ENTRIES IN @lt_status_db WHERE h~bukrs   = @lt_status_db-bukrs
+                                           AND h~belnr   = @lt_status_db-belnr
+                                           AND h~gjahr   = @lt_status_db-gjahr
+        INTO TABLE @DATA(lt_blart).
+      IF sy-subrc <> 0.
+        CLEAR lt_blart.
+      ENDIF.
+    ENDIF.
+
+    lt_kunnr             = VALUE #( FOR status_db IN lt_status_db ( status_db-kunnr ) ).
+    DATA(lt_ustid)       = get_ustid_kunnr( lt_kunnr ).
+    " >>> INS S4RFICO-3410
+    " CCS-Beleg: offizielle Rechnungsnummer ggf. ueber ZUORD/REF (XREF3) in BSAD ermitteln
+    DATA(lt_bsad_idx)    = fetch_customer_index_data( lt_status_db ).
+    " <<< INS S4RFICO-3410
+    LOOP AT lt_status_db ASSIGNING FIELD-SYMBOL(<ls_status_db>).
+      APPEND INITIAL LINE TO pct_status ASSIGNING FIELD-SYMBOL(<ls_status>).
+      IF <ls_status> IS ASSIGNED.
+        <ls_status>-rechnr                 = <ls_status_db>-belnr.
+        " >>> INS S4RFICO-3410
+        TRY.
+            <ls_status>-invoiceid = lt_bsad_idx[ bukrs = <ls_status_db>-bukrs
+                                                  kunnr = <ls_status_db>-kunnr
+                                                  gjahr = <ls_status_db>-gjahr
+                                                  augbl = <ls_status_db>-belnr ]-xblnr.
+          CATCH cx_sy_itab_line_not_found.
+            <ls_status>-invoiceid = <ls_status_db>-xblnr.
+        ENDTRY.
+        " <<< INS S4RFICO-3410
+        <ls_status>-zuordguid              = <ls_status_db>-zuonr.
+        <ls_status>-rechdate               = <ls_status_db>-bldat.
+        <ls_status>-lifnr                  = <ls_status_db>-kunnr.
+        TRY.
+            <ls_status>-ustid_rechnsteller      = lt_steuer_stecg[ bukrs = <ls_status_db>-bukrs ]-stceg.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-ustid_rechnsteller.
+        ENDTRY.
+        TRY.
+            <ls_status>-oib_rechnsteller        = lt_steuer_stecg[ bukrs = <ls_status_db>-bukrs ]-stcd1.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-oib_rechnsteller.
+        ENDTRY.
+        TRY.
+            <ls_status>-ustid_rechnempaenger    = lt_ustid[ kunnr = <ls_status_db>-kunnr ]-stceg.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-ustid_rechnempaenger.
+        ENDTRY.
+        TRY.
+            <ls_status>-oib_rechnempaenger      = lt_ustid[ kunnr = <ls_status_db>-kunnr ]-stcd2.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-oib_rechnempaenger .
+        ENDTRY.
+        <ls_status>-steuersatz             = <ls_status_db>-wmwst.
+        <ls_status>-bukrs                  = <ls_status_db>-bukrs.
+        <ls_status>-last_update            = <ls_status_db>-cpudt.
+        <ls_status>-rep_art                = ac_reporting_art-zahlung.
+        <ls_status>-data_art               = ac_data_art-debitoren_tabelle.
+        <ls_status>-zahlunghoehe           = <ls_status_db>-dmbtr.
+        <ls_status>-waehrung               = <ls_status_db>-waers.
+        TRY.
+            DATA(lv_blart) = lt_blart[ bukrs = <ls_status_db>-bukrs
+                                       augbl = <ls_status_db>-belnr
+                                       gjahr = <ls_status_db>-gjahr   ]-blart.
+            get_parameter( EXPORTING iv_parameter = ac_parameter_name-process_debitor_blart
+                                     iv_zusatz    = CONV #( lv_blart )
+                           IMPORTING ev_value1    = DATA(lv_paramter_value)       ).
+            <ls_status>-zahlungsweg        =  lv_paramter_value.
+          CATCH cx_sy_itab_line_not_found.
+            CLEAR <ls_status>-zahlungsweg .
+        ENDTRY.
+      ENDIF.
+    ENDLOOP.
+
+  ENDMETHOD.
+
+  METHOD get_buchungskreis.
+    DATA lt_bukrs_rng TYPE RANGE OF bukrs .
+
+    CLEAR rt_result.
+
+    IF it_bukrs IS INITIAL .      RETURN.    ENDIF.
+
+    lt_bukrs_rng = VALUE #( FOR ls_bukrs IN it_bukrs ( sign = 'I' option = 'EQ' low = ls_bukrs ) ).
+
+    SELECT FROM t001n FIELDS
+       bukrs, stceg, stcd1
+      WHERE bukrs  IN @lt_bukrs_rng
+      INTO TABLE @rt_result.
+    IF sy-subrc <> 0 .
+      CLEAR rt_result.
+    ENDIF.
+  ENDMETHOD.
+  METHOD get_steuersatz_buch .
+    DATA lt_guid_rng TYPE RANGE OF yr_rp_iv_guid.
+    CLEAR rt_result.
+    IF it_guid IS INITIAL. RETURN. ENDIF.
+    lt_guid_rng = VALUE #( FOR ls_guid IN  it_guid ( sign = 'I' option = 'EQ' low = ls_guid ) ).
+    SELECT FROM yrrp_iv_in_tax
+      FIELDS ivid, taxpc
+      WHERE ivid IN @lt_guid_rng
+      ORDER BY ivid ASCENDING , taxpc DESCENDING
+      INTO TABLE @rt_result.
+    IF sy-subrc <> 0 .
+      CLEAR rt_result.
+    ENDIF.
+  ENDMETHOD.
+  METHOD fetch_parameter.
+    TRY.
+        ycl_ca_bb_para=>get_param_all( EXPORTING piv_objtyp  = 'P'
+                                                 piv_objname = 'YR_RP_GET_MARKANT_STATUS_ERE'
+                                                 piv_get_u   = abap_true
+                                                 piv_get_p   = abap_true
+                                       IMPORTING pet_paras   = at_parameter        ).
+      CATCH ycx_ca_bb_para INTO DATA(lx_para).
+        IF ( lx_para->no_entries NE abap_true ).
+          APPEND VALUE #( icon = icon_warning msgtx = TEXT-009 ) TO pct_prot.
+        ENDIF.
+    ENDTRY.
+  ENDMETHOD.
+  METHOD get_parameter.
+    CLEAR: ev_value1 , ev_value2.
+    TRY.
+        DATA(parameter)  = at_parameter[ param = iv_parameter zusatz = iv_zusatz ].
+        ev_value1 = parameter-value1.
+        ev_value2 = parameter-value2.
+      CATCH cx_sy_itab_line_not_found.
+        CLEAR: ev_value1 , ev_value2.
+    ENDTRY.
+  ENDMETHOD.
+  METHOD fetch_customer_index_data.
+    CLEAR rt_result.
+    IF  it_status_db IS INITIAL . RETURN . ENDIF.
+
+    SELECT   bukrs ,
+             kunnr ,
+             augdt ,
+             augbl ,
+             gjahr ,
+             belnr ,
+             buzei ,
+             xblnr
+        FROM bsad_view
+      FOR ALL ENTRIES IN @it_status_db  WHERE
+          bukrs = @it_status_db-bukrs
+      AND kunnr = @it_status_db-kunnr
+      AND augdt = @it_status_db-bldat
+      AND augbl = @it_status_db-belnr
+      AND gjahr = @it_status_db-gjahr
+      AND buzei = 1
+      INTO TABLE @rt_result .
+    IF sy-subrc <> 0.
+      CLEAR rt_result.
+    ENDIF.
+    " >>> INS S4RFICO-3410
+    " CCS: fuer CCS-Belege (Zusatzbeleg 816*/18* in ZUORD oder REF) liefert
+    " fetch_ccs_document die tatsaechliche offizielle Rechnungsnummer - diese
+    " ersetzt den Basiswert je Schluessel (bukrs/kunnr/gjahr/augbl), damit der
+    " Lookup ueber diesen Schluessel eindeutig bleibt.
+    DATA(lt_ccs) = fetch_ccs_document( it_status_db ).
+    LOOP AT lt_ccs ASSIGNING FIELD-SYMBOL(<ls_ccs>).
+      DELETE rt_result WHERE bukrs = <ls_ccs>-bukrs
+                         AND kunnr = <ls_ccs>-kunnr
+                         AND gjahr = <ls_ccs>-gjahr
+                         AND augbl = <ls_ccs>-augbl.
+    ENDLOOP.
+    APPEND LINES OF lt_ccs TO rt_result.
+    " <<< INS S4RFICO-3410
+  ENDMETHOD.
+
+  METHOD fetch_ccs_document.
+    " >>> INS S4RFICO-3410
+    " CCS-Beleg: der Zusatzbeleg kann wahlweise im Feld ZUONR (Zuordnung)
+    " oder im Feld XREF3 (Referenz Schlüssel 3) stehen. Die Logik zur Ermittlung
+    " der offiziellen Rechnungsnummer unterscheidet sich je nach Zusatzbeleg-Praefix:
+    "  - 816*: Zusatzbeleg ist nur der Schluessel zum Beleg - die offizielle
+    "          Rechnungsnummer steht erst in BKPF-XBLNR_ALT des referenzierten Belegs.
+    "  - 18* : XREF3 selbst enthaelt bereits die offizielle Rechnungsnummer,
+    "          ein weiterer Zugriff auf BKPF ist nicht notwendig.
+    DATA zuord_range     TYPE RANGE OF dzuord.
+    DATA zuord_range_816 TYPE RANGE OF dzuord.
+
+    CLEAR rt_result.
+
+    IF  it_status_db IS INITIAL . RETURN . ENDIF.
+
+    zuord_range_816 = VALUE #( ( sign = 'I' option = 'CP' low = '816*' ) ).
+    zuord_range      = VALUE #( ( sign = 'I' option = 'CP' low = '816*' )
+                                 ( sign = 'I' option = 'CP' low = '18*'  ) ).
+
+    SELECT   bukrs ,
+             kunnr ,
+             augdt ,
+             augbl ,
+             gjahr ,
+             belnr ,
+             buzei ,
+             xblnr ,
+             zuonr ,
+             xref3
+       FROM bsad_view
+      FOR ALL ENTRIES IN @it_status_db  WHERE
+          bukrs = @it_status_db-bukrs
+      AND kunnr = @it_status_db-kunnr
+      AND augdt = @it_status_db-bldat
+      AND augbl =  @it_status_db-belnr
+      AND gjahr =  @it_status_db-gjahr
+      AND ( zuonr IN @zuord_range OR xref3 IN @zuord_range )
+      AND buzei = 1
+      INTO TABLE @DATA(lt_bsad).
+    IF sy-subrc <> 0 OR lt_bsad IS INITIAL.
+      RETURN.
+    ENDIF.
+
+    DATA lt_bsad_816 LIKE lt_bsad.
+    DATA lt_bsad_18  LIKE lt_bsad.
+
+    LOOP AT lt_bsad ASSIGNING FIELD-SYMBOL(<ls_bsad>).
+      IF <ls_bsad>-zuonr IN zuord_range_816 OR <ls_bsad>-xref3 IN zuord_range_816.
+        APPEND <ls_bsad> TO lt_bsad_816.
+      ELSE.
+        APPEND <ls_bsad> TO lt_bsad_18.
+      ENDIF.
+    ENDLOOP.
+
+    " 816*: offizielle Rechnungsnummer aus BKPF-XBLNR_ALT des referenzierten Belegs
+    IF lt_bsad_816 IS NOT INITIAL.
+      SELECT bukrs, belnr, gjahr, xblnr_alt
+        FROM bkpf
+        FOR ALL ENTRIES IN @lt_bsad_816
+        WHERE bukrs = @lt_bsad_816-bukrs
+          AND belnr = @lt_bsad_816-belnr
+          AND gjahr = @lt_bsad_816-gjahr
+        INTO TABLE @DATA(lt_bkpf)
+        .
+      IF sy-subrc <> 0. CLEAR lt_bkpf . ENDIF.
+      rt_result = VALUE #( BASE rt_result
+       FOR item IN lt_bsad_816 FOR head IN lt_bkpf WHERE ( bukrs  = item-bukrs AND belnr = item-belnr AND gjahr = item-gjahr )
+       (
+           bukrs = item-bukrs
+           kunnr = item-kunnr
+           augdt = item-augbl
+           augbl = item-augbl
+           gjahr = item-gjahr
+           belnr = item-belnr
+           buzei = item-buzei
+           xblnr = head-xblnr_alt       )         )         .
+    ENDIF.
+
+    " 18*: XREF3 (Referenz Schlüssel 3) ist bereits die offizielle Rechnungsnummer
+    IF lt_bsad_18 IS NOT INITIAL.
+      rt_result = VALUE #( BASE rt_result
+       FOR item IN lt_bsad_18
+       (
+           bukrs = item-bukrs
+           kunnr = item-kunnr
+           augdt = item-augbl
+           augbl = item-augbl
+           gjahr = item-gjahr
+           belnr = item-belnr
+           buzei = item-buzei
+           xblnr = item-xref3       )         )         .
+    ENDIF.
+    " <<< INS S4RFICO-3410
+  ENDMETHOD.
+
+ENDCLASS.
+
+AT SELECTION-SCREEN.
+  IF p_debi IS NOT INITIAL AND s_belnr[] IS NOT INITIAL AND s_gjahr[] IS INITIAL.
+    MESSAGE e000(yrrk_eknner) WITH 'Bitte Geschäftsjahr für Zusatzbelege befüllen'(013).
+  ENDIF.
+  IF p_debi IS NOT INITIAL AND s_belnr[] IS INITIAL AND s_gjahr[] IS NOT INITIAL.
+    MESSAGE e000(yrrk_eknner) WITH 'Bitte Belegnummer für Zusatzbelege befüllen'(014).
+  ENDIF.
+
+START-OF-SELECTION.
+
+  NEW lcl_get_markant_status( )->process( ).
