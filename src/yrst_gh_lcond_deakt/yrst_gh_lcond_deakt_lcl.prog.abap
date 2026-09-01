@@ -86,6 +86,17 @@ CLASS lcl_application DEFINITION CREATE PUBLIC.
              months   TYPE i,
            END OF ty_s_residency.
 
+*   Fuer SELECT_STOCK_PACKAGE: FOR ALL ENTRIES darf nicht mit GROUP BY/
+*   HAVING kombiniert werden, daher wird je Artikel/BuKr-Zeile gelesen
+*   und die Summe anschliessend per COLLECT in ABAP gebildet.
+    TYPES: BEGIN OF ty_s_stock_qty,
+             matnr      TYPE matnr,
+             bukrs_send TYPE bukrs,
+             qty        TYPE i_materialstock-matlwrhsstkqtyinmatlbaseunit,
+           END OF ty_s_stock_qty,
+           ty_t_stock_qty TYPE STANDARD TABLE OF ty_s_stock_qty
+                               WITH NON-UNIQUE KEY matnr bukrs_send.
+
     DATA: ms_selection    TYPE ty_s_selection,
           mt_log          TYPE ty_t_log,
           mv_months_def   TYPE i VALUE 6,
@@ -324,14 +335,22 @@ CLASS lcl_application IMPLEMENTATION.
 
   METHOD select_stock_package.
 
+    DATA lt_stock TYPE ty_t_stock_qty.
+
 *   Hinweis (Review-Fix): direkt mit FOR ALL ENTRIES auf den tatsaechlichen
 *   (BuKr, Artikel)-Paaren selektieren statt ueber zwei getrennte Ranges
 *   (Kreuzprodukt aus allen BuKr x allen Artikeln, das anschliessend wieder
 *   auf die echten Paare gefiltert wurde).
 *   T001W enthaelt keinen Buchungskreis -> Zuordnung ueber den Bewertungs-
 *   kreis (T001W-BWKEY) auf T001K-BUKRS.
-    SELECT s~material AS matnr,
-           k~bukrs    AS bukrs_send
+*   Hinweis (Syntax-Fix): "GROUP ist hier nicht erlaubt" - Open SQL
+*   verbietet GROUP BY/HAVING in Kombination mit FOR ALL ENTRIES. Daher
+*   werden hier die Einzelbestandszeilen gelesen (ohne Aggregation) und
+*   die Summe je Artikel/BuKr wird anschliessend in ABAP per COLLECT
+*   gebildet.
+    SELECT s~material                    AS matnr,
+           k~bukrs                       AS bukrs_send,
+           s~matlwrhsstkqtyinmatlbaseunit AS qty
       FROM i_materialstock AS s
       INNER JOIN t001w AS w ON w~werks = s~plant
       INNER JOIN t001k AS k ON k~bwkey = w~bwkey
@@ -339,10 +358,15 @@ CLASS lcl_application IMPLEMENTATION.
       WHERE s~material           = @it_package-matnr
         AND k~bukrs               = @it_package-bukrs_send
         AND s~inventorystocktype  = @gc_stock_status
-      GROUP BY s~material, k~bukrs
-      HAVING SUM( s~matlwrhsstkqtyinmatlbaseunit ) > 0
-      INTO TABLE @DATA(lt_stock).
-*       matlwrhsstkqtyinmatlbaseunit AS labst
+      INTO TABLE @DATA(lt_stock_raw).
+
+    LOOP AT lt_stock_raw INTO DATA(ls_raw).
+      COLLECT VALUE ty_s_stock_qty( matnr      = ls_raw-matnr
+                                     bukrs_send = ls_raw-bukrs_send
+                                     qty        = ls_raw-qty ) INTO lt_stock.
+    ENDLOOP.
+
+    DELETE lt_stock WHERE qty <= 0.
 
     rt_articles = CORRESPONDING #( lt_stock ).
 

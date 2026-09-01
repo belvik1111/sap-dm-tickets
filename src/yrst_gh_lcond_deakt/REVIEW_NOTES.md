@@ -22,6 +22,20 @@ OR-Verkettung im SQL) und waere fuer dieses Muster weiterhin zu gross.
 Der konkret passende Wert ist datenbankabhaengig und sollte im
 Zielsystem mit realistischen Datenmengen verifiziert werden.
 
+## Hotfix 2026-09-01 (2) – Syntaxfehler "GROUP ist hier nicht erlaubt"
+
+Im obigen Hotfix wurde `GROUP BY ... HAVING SUM(...) > 0` weiterhin
+zusammen mit `FOR ALL ENTRIES` verwendet. Das ist in Open SQL nicht
+erlaubt (`GROUP BY`/`HAVING` duerfen nicht mit `FOR ALL ENTRIES`
+kombiniert werden) und fuehrte zum Syntaxfehler.
+
+**Fix**: `SELECT_STOCK_PACKAGE` liest jetzt die Einzelbestandszeilen
+ohne Aggregation im SQL (nur `WHERE`, kein `GROUP BY`/`HAVING`) und
+bildet die Summe je Artikel/BuKr anschliessend in ABAP per `COLLECT`
+auf dem neuen Typ `TY_S_STOCK_QTY`/`TY_T_STOCK_QTY`. Danach werden
+Zeilen mit Summe `<= 0` per `DELETE ... WHERE qty <= 0` entfernt –
+fachlich identisch zur vorherigen `HAVING`-Bedingung.
+
 ## Umgesetzte Fixes (im Code)
 
 1. **Kritisch – Residenzzeiten-Relationen aktiviert** (`..._lcl`, `load_parameters`):
