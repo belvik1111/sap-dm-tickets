@@ -68,3 +68,10 @@ CONSTANTS: gc_tabname      TYPE tabname    VALUE 'YRST_GH_LCOND',
            gc_cdobjclas    TYPE cdobjectcl VALUE 'YRST_LCOND',
            gc_stock_status TYPE lbbsa      VALUE '01',
            gc_package_size TYPE i          VALUE 10000.
+
+* Kleineres Paket fuer FOR ALL ENTRIES mit mehreren UND-verknuepften
+* Feldern (SELECT_STOCK_PACKAGE): dort erzeugt jede Paketzeile eine
+* eigene ODER-Bedingungsgruppe im SQL-Statement, GC_PACKAGE_SIZE (fuer
+* die einfache UPDATE-Paketierung ausgelegt) waere hier zu gross und
+* koennte selbst SAPSQL_STMNT_TOO_LARGE ausloesen.
+CONSTANTS gc_stock_check_package_size TYPE i VALUE 500.

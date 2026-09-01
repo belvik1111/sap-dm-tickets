@@ -1,5 +1,27 @@
 # YRST_GH_LCOND_DEAKT – Review-Fixes 2026-08-25
 
+## Hotfix 2026-09-01 – SAPSQL_STMNT_TOO_LARGE in SELECT_ARTICLES_WITH_STOCK
+
+Laufzeitfehler `SAPSQL_STMNT_TOO_LARGE` (`CX_SY_OPEN_SQL_DB`) in
+`SELECT_ARTICLES_WITH_STOCK`. Ursache: der Review-Fix #5 unten
+(Kreuzprodukt entfernt) hat `FOR ALL ENTRIES IN it_articles` mit zwei
+UND-verknuepften Feldern (`MATNR` und `BUKRS_SEND`) eingefuehrt. Dabei
+erzeugt die Datenbankschnittstelle pro Zeile von `it_articles` eine
+eigene ODER-verknuepfte Klammer im SQL-Statement
+(`(MATNR = 'x1' AND BUKRS = 'y1') OR (MATNR = 'x2' AND BUKRS = 'y2') OR ...`).
+Bei entsprechend vielen delisteten Artikel/BuKr-Kombinationen wird die
+vom Datenbanksystem erlaubte Statementlaenge ueberschritten.
+
+**Fix**: `SELECT_ARTICLES_WITH_STOCK` verarbeitet `it_articles` jetzt
+paketweise (analog `SAVE_UPDATES`/`UPDATE_PACKAGE`); der eigentliche
+SELECT wurde nach `SELECT_STOCK_PACKAGE` ausgelagert. Dafuer neue,
+bewusst kleinere Konstante `GC_STOCK_CHECK_PACKAGE_SIZE = 500` (TOP-
+Include) statt der bestehenden `GC_PACKAGE_SIZE = 10000` – letztere ist
+fuer die reine `UPDATE ... FROM TABLE`-Paketierung ausgelegt (keine
+OR-Verkettung im SQL) und waere fuer dieses Muster weiterhin zu gross.
+Der konkret passende Wert ist datenbankabhaengig und sollte im
+Zielsystem mit realistischen Datenmengen verifiziert werden.
+
 ## Umgesetzte Fixes (im Code)
 
 1. **Kritisch – Residenzzeiten-Relationen aktiviert** (`..._lcl`, `load_parameters`):

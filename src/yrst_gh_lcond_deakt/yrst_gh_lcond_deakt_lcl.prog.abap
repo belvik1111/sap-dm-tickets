@@ -128,6 +128,11 @@ CLASS lcl_application DEFINITION CREATE PUBLIC.
       IMPORTING iv_bukrs          TYPE bukrs
       RETURNING VALUE(rv_country) TYPE land1.
 
+*   Bestandsprüfung - Selektion paketweise (vgl. UPDATE_PACKAGE)
+    METHODS select_stock_package
+      IMPORTING it_package         TYPE ty_t_article
+      RETURNING VALUE(rt_articles) TYPE ty_t_article.
+
 *   Persistenz / Änderungsbelege
     METHODS update_package
       IMPORTING it_package TYPE ty_t_lcond
@@ -288,9 +293,36 @@ CLASS lcl_application IMPLEMENTATION.
 *----------------------------------------------------------------------*
   METHOD select_articles_with_stock.
 
+    DATA lt_package TYPE ty_t_article.
+
     IF it_articles IS INITIAL.
       RETURN.
     ENDIF.
+
+*   Review-Fix (SAPSQL_STMNT_TOO_LARGE): FOR ALL ENTRIES mit zwei UND-
+*   verknuepften Schluesselfeldern (MATNR + BUKRS_SEND) erzeugt pro Zeile
+*   von IT_ARTICLES eine eigene ODER-verknuepfte Bedingungsgruppe im
+*   SQL-Statement. Bei vielen Artikeln/BuKr-Kombinationen wird die vom
+*   Datenbanksystem erlaubte Statementlaenge ueberschritten. Daher hier
+*   paketweise Selektion (analog SAVE_UPDATES/UPDATE_PACKAGE).
+    LOOP AT it_articles INTO DATA(ls_article).
+      INSERT ls_article INTO TABLE lt_package.
+
+      IF lines( lt_package ) >= gc_stock_check_package_size.
+        rt_articles = VALUE #( BASE rt_articles
+          ( LINES OF select_stock_package( lt_package ) ) ).
+        CLEAR lt_package.
+      ENDIF.
+    ENDLOOP.
+
+    IF lt_package IS NOT INITIAL.
+      rt_articles = VALUE #( BASE rt_articles
+        ( LINES OF select_stock_package( lt_package ) ) ).
+    ENDIF.
+
+  ENDMETHOD.
+
+  METHOD select_stock_package.
 
 *   Hinweis (Review-Fix): direkt mit FOR ALL ENTRIES auf den tatsaechlichen
 *   (BuKr, Artikel)-Paaren selektieren statt ueber zwei getrennte Ranges
@@ -303,9 +335,9 @@ CLASS lcl_application IMPLEMENTATION.
       FROM i_materialstock AS s
       INNER JOIN t001w AS w ON w~werks = s~plant
       INNER JOIN t001k AS k ON k~bwkey = w~bwkey
-      FOR ALL ENTRIES IN @it_articles
-      WHERE s~material           = @it_articles-matnr
-        AND k~bukrs               = @it_articles-bukrs_send
+      FOR ALL ENTRIES IN @it_package
+      WHERE s~material           = @it_package-matnr
+        AND k~bukrs               = @it_package-bukrs_send
         AND s~inventorystocktype  = @gc_stock_status
       GROUP BY s~material, k~bukrs
       HAVING SUM( s~matlwrhsstkqtyinmatlbaseunit ) > 0
